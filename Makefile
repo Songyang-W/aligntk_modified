@@ -1,12 +1,13 @@
 # the configure script will fill in these values
-CC	= gcc
+CC	= icc
 CFLAGS	= -g -O2 -L/opt/libtiff.4/lib -ltiff -I/opt/libtiff.4/include -L/opt/fftw/3.3.4/lib -lfftw3f -I/opt/fftw/3.3.4/include  
-CXX	= g++
+CXX	= icpc
 CXXFLAGS= -g -O2
 MPICC   = mpicc
 MKDIR   = mkdir
 INSTALL	= /usr/bin/install -c
-prefix	= /groups/htem/temcagt/alignment_software
+#prefix	= /groups/htem/temcagt/alignment_software
+prefix = ${CURDIR}/build
 exec_prefix = ${prefix}
 bindir	= ${exec_prefix}/bin
 datarootdir = ${prefix}/share

@@ -1,0 +1,17 @@
+#!/bin/bash
+# To build this on orchestra
+
+. /opt/Modules/3.2.10/init/bash
+module load dev/compiler/intel-2011
+module load dev/compiler/gcc-4.8.5
+module load dev/openmpi-1.8.6-intel
+module load utils/libtiff/4
+module load utils/libjpeg/9a
+module load dev/fftw/3.3.4
+module load utils/zlib/1.2.8
+
+mkdir -p build/bin
+mkdir -p build/share
+
+make
+make install
