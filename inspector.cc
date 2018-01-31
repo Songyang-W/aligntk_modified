@@ -571,8 +571,8 @@ MyWindow::draw ()
       //      printf("Leaving setTextures... nCpts = %d\n", nCpts);
     }
 
-  char name[128];
-  char title[128];
+  char name[2*PATH_MAX];
+  char title[2*PATH_MAX];
   if (mapName[0] != '\0')
     {
       switch (type)
