@@ -1933,7 +1933,6 @@ main (int argc, char **argv)
       rny = (images[i].height + eFactor - 1) / eFactor;
       imbpl = (rnx + 7) >> 3;
       imask = images[i].mask;
-      count = 0;
       for (y = 0; y < ny; ++y)
 	for (x = 0; x < nx; ++x)
 	  {
@@ -1974,11 +1973,9 @@ main (int argc, char **argv)
 		    node[(y + 1) * nx + x + 1].x = 0.0;
 		    node[(y + 1) * nx + x + 1].y = 0.0;
 		  }
-		++count;
 	      }
 	  }
       Log("Finished marking the valid map nodes for image %s\n", images[i].name);
-      Log("    %d were valid, out of a possible %d\n", count, nx * ny);
 
       /* check what constraints are present */
       if (constraintName[0] != '\0')
@@ -2264,10 +2261,8 @@ main (int argc, char **argv)
 	  poix = (int) floor(poixv / factor + 0.5);
 	  poiy = (int) floor(poiyv / factor + 0.5);
 #endif
-	  count = 0;
-	  node = images[i].nodes;
 	  for (y = 0; y < ny; ++y)
-	    for (x = 0; x < nx; ++x, ++node, ++initialPos)
+	    for (x = 0; x < nx; ++x, ++initialPos)
 	      {
 		if (node->x > 0.5 * UNSPECIFIED)
 		  {
@@ -2275,7 +2270,6 @@ main (int argc, char **argv)
 		    initialPos->y = UNSPECIFIED;
 		    continue;
 		  }
-		++count;
 		initialPos->x =  cost * mpts[y*nx+x].x + sint * mpts[y*nx+x].y
 		  + images[i].tx / factor;
 		initialPos->y =  -sint * mpts[y*nx+x].x + cost * mpts[y*nx+x].y
@@ -2288,8 +2282,6 @@ main (int argc, char **argv)
 		      i, x, y, initialPos->x, initialPos->y);
 #endif
 	      }
-	  Log("Set %d positions out of %d in according to rotation %f & scale %f\n",
-	      count, nx * ny, images[i].rotation, images[i].scale);
 	}
 
       /* set the nodes to their initial positions */
