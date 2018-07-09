@@ -1,6 +1,6 @@
 # the configure script will fill in these values
 CC	= icc
-CFLAGS	= -g -O2 -L/opt/libtiff.4/lib -ltiff -I/opt/libtiff.4/include -L/opt/fftw/3.3.4/lib -lfftw3f -I/opt/fftw/3.3.4/include  
+CFLAGS	= -g -O2 -L/n/app/tiff/4.0.7/lib -ltiff -I/n/app/tiff/4.0.7/include -L/n/app/fftw/3.3.7/lib -lfftw3f -I/n/app/fftw/3.3.7/include  -L/n/app/intel/2016/lib/intel64 -lirc
 CXX	= icpc
 CXXFLAGS= -g -O2
 MPICC   = mpicc

@@ -1218,10 +1218,10 @@ main (int argc, char **argv)
         }
 
         /* transfer prefix of log file */
-        if (MPI_Bcast(&outputLogPrefix, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS )
+        if (MPI_Bcast(&outputLogPrefix,PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS )
           Error("Broadcast outputLogPrefix failed");
         /* handle the adding of the process id */
-        strcat(&outputLogPrefix,".%.2d");
+        strcat(outputLogPrefix,".%.2d");
         sprintf(fn,outputLogPrefix, p);
         logFile = fopen(fn, "w");
 
