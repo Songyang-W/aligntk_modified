@@ -730,7 +730,7 @@ main (int argc, char **argv)
 #endif
 
         gethostname(hostName, 255);
-        Log("Process %d is running on %s\n", p, hostName);
+        printf("Process %d is running on %s\n", p, hostName);
         memset(dirHash, 0, DIR_HASH_SIZE * sizeof(char*));
         if (p == 0)
         {
@@ -753,7 +753,7 @@ main (int argc, char **argv)
                 schedule[0] = '\0';
 
                 for (i = 0; i < argc; ++i)
-                        Log("ARGV[%d] = %s\n", i, argv[i]);
+                        printf("ARGV[%d] = %s\n", i, argv[i]);
                 for (i = 1; i < argc; ++i)
                         if (strcmp(argv[i], "-images") == 0)
                         {
@@ -1225,6 +1225,7 @@ main (int argc, char **argv)
         sprintf(fn,outputLogPrefix, p);
         logFile = fopen(fn, "w");
 
+        Log("Opening File %d \n", fn);
 
         /* broadcast the image info */
         if (MPI_Bcast(&nImages, 1, MPI_INT, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
