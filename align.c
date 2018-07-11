@@ -3501,6 +3501,8 @@ finalFoldCheck:
         Log("FINALIZING\n");
         MPI_Finalize();
         fclose(logFile);
+        if ( foldDetected )
+            return(1);
         return(0);
 }
 
