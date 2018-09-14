@@ -48,12 +48,13 @@ computeDistance (int type,
 		 unsigned char *mask,
 		 float *dist)
 {
-  int *g;
+  long long *g;
   long long mw;
-  int q;
-  int *s, *t;
-  int u;
-  int w, z;
+  long long q;
+  long long *s, *t;
+  long long u;
+  long long w;
+  long long z;
   int x, y;
   long long lnx;
 
@@ -71,9 +72,9 @@ computeDistance (int type,
   return;
 
  nonempty:
-  g = (int *) malloc(lnx * ny * sizeof(int));
-  s = (int *) malloc(nx * sizeof(int));
-  t = (int *) malloc(nx * sizeof(int));
+  g = (long long *) malloc(lnx * ny * sizeof(long long));
+  s = (long long *) malloc(nx * sizeof(long long));
+  t = (long long *) malloc(nx * sizeof(long long));
   for (x = 0; x < nx; ++x)
     {
       if ((mask[x >> 3] & (0x80 >> (x & 7))) != 0)
@@ -102,25 +103,25 @@ computeDistance (int type,
 	    case EUCLIDEAN_DISTANCE:
 	    case EUCLIDEAN_DISTANCE_SQUARED:
 	      while (q >= 0 &&
-		     (t[q] - s[q]) * ((long long) (t[q] - s[q])) +
-		     g[y*lnx + s[q]] * ((long long) g[y*lnx + s[q]]) >
-		     (t[q] - u) * ((long long) (t[q] - u)) +
-		     g[y*lnx + u] * ((long long) g[y*lnx + u]))
+		     (t[q] - s[q]) * (t[q] - s[q]) +
+		     g[y*lnx + s[q]] * g[y*lnx + s[q]] >
+		     (t[q] - u) * (t[q] - u) +
+		     g[y*lnx + u] * g[y*lnx + u])
 		--q;
 	      break;
 	    case MANHATTAN_DISTANCE:
 	      while (q >= 0 &&
-		     abs(t[q] - s[q]) + g[y*lnx + s[q]] >
-		     abs(t[q] - u) + g[y*lnx + u])
+		     llabs(t[q] - s[q]) + g[y*lnx + s[q]] >
+		     llabs(t[q] - u) + g[y*lnx + u])
 		--q;
 	      break;
 	    case CHESSBOARD_DISTANCE:
 	      while (q >= 0)
 		{
-		  w = abs(t[q] - s[q]);
+		  w = llabs(t[q] - s[q]);
 		  if (g[y*lnx + s[q]] > w)
 		    w = g[y*lnx + s[q]];
-		  z = abs(t[q] - u);
+		  z = llabs(t[q] - u);
 		  if (g[y*lnx + u] > z)
 		    z = g[y*lnx + u];
 		  if (w <= z)
@@ -140,9 +141,9 @@ computeDistance (int type,
 		{
 		case EUCLIDEAN_DISTANCE:
 		case EUCLIDEAN_DISTANCE_SQUARED:
-		  w = (u * ((long long) u) - s[q] * ((long long) s[q]) +
-		       g[y*lnx+u] * ((long long) g[y*lnx+u]) -
-		       g[y*lnx+s[q]] * ((long long) g[y*lnx+s[q]])) /
+		  w = (u * u - s[q] * s[q] +
+		       g[y*lnx+u] * g[y*lnx+u] -
+		       g[y*lnx+s[q]] * g[y*lnx+s[q]]) /
 		    (2 * (u - s[q])) + 1;
 		  break;
 		case MANHATTAN_DISTANCE:
@@ -171,7 +172,7 @@ computeDistance (int type,
 		  ++w;
 		  break;
 		}
-	      if (w < nx)
+	      if (w < lnx)
 		{
 		  ++q;
 		  s[q] = u;
@@ -184,18 +185,18 @@ computeDistance (int type,
 	  switch (type)
 	    {
 	    case EUCLIDEAN_DISTANCE:
-	      dist[y * lnx + u] = sqrt((double) ((u - s[q]) * ((long long) (u - s[q])) +
-						 g[y*lnx + s[q]] * ((long long) g[y*lnx + s[q]])));
+	      dist[y * lnx + u] = sqrt((double) ((u - s[q]) * (u - s[q]) +
+						 g[y*lnx + s[q]] * g[y*lnx + s[q]]));
 	      break;
 	    case EUCLIDEAN_DISTANCE_SQUARED:
-	      dist[y * lnx + u] = (u - s[q]) * ((long long) (u - s[q])) +
-		g[y*lnx + s[q]] * ((long long) g[y*lnx + s[q]]);
+	      dist[y * lnx + u] = (u - s[q]) * (u - s[q]) +
+		g[y*lnx + s[q]] * g[y*lnx + s[q]];
 	      break;
 	    case MANHATTAN_DISTANCE:
-	      dist[y * lnx + u] = abs(u - s[q]) + g[y*lnx + s[q]];
+	      dist[y * lnx + u] = llabs(u - s[q]) + g[y*lnx + s[q]];
 	      break;
 	    case CHESSBOARD_DISTANCE:
-	      w = abs(u - s[q]);
+	      w = llabs(u - s[q]);
 	      if (g[y*lnx + s[q]] > w)
 		w = g[y*lnx + s[q]];
 	      dist[y * lnx + u] = w;

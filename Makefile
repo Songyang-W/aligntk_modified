@@ -1,13 +1,13 @@
 # the configure script will fill in these values
-CC	= icc
-CFLAGS	= -g -O2 -L/n/app/tiff/4.0.7/lib -ltiff -I/n/app/tiff/4.0.7/include -L/n/app/fftw/3.3.7/lib -lfftw3f -I/n/app/fftw/3.3.7/include  -L/n/app/intel/2016/lib/intel64 -lirc
-CXX	= icpc
+CC	= gcc
+CFLAGS	= -g -O2 -L/n/app/tiff/4.0.7/lib -ltiff -I/n/app/tiff/4.0.7/include -L/n/app/fftw/3.3.7/lib -lfftw3f -I/n/app/fftw/3.3.7/include -I/n/groups/htem/temcagt/alignment_software/fltk/include
+CXX	= g++
 CXXFLAGS= -g -O2
 MPICC   = mpicc
 MKDIR   = mkdir
 INSTALL	= /usr/bin/install -c
 #prefix	= /groups/htem/temcagt/alignment_software
-prefix = ${CURDIR}/build
+prefix = /home/lt91/Repos/aligntk/build
 exec_prefix = ${prefix}
 bindir	= ${exec_prefix}/bin
 datarootdir = ${prefix}/share
@@ -15,9 +15,9 @@ datadir = ${datarootdir}
 TARGETS = nox_executables x_executables
 INSTALL_TARGETS = nox_install x_install
 
-NOX_EXECUTABLES = align apply_map best_affine best_rigid combine_masks compare_images compare_maps compose_maps extrapolate_map find_rst gen_imaps gen_mask gen_pyramid merge_images ortho prun reduce reduce_mask register transform
+NOX_EXECUTABLES = align apply_map autoclean_maps best_affine best_rigid combine_masks compare_images compare_maps compose_maps extrapolate_map find_rst gen_imaps gen_mask gen_pyramid merge_images ortho prun reduce reduce_mask register transform
 X_EXECUTABLES = clean_maps inspector
-FLTK_LIBS=-lfltk -lfltk_gl -lGL -lGLU
+FLTK_LIBS= -L/n/groups/htem/temcagt/alignment_software/fltk/lib -I/n/groups/htem/temcagt/alignment_software/fltk/include -L/usr/lib64 -lXext -lX11 -ldl -lXfixes -lXft -lfontconfig -lXrender -lfltk -lfltk_gl -lGL -lGLU
 
 all: $(TARGETS)
 
@@ -26,7 +26,7 @@ nox_executables: $(NOX_EXECUTABLES)
 x_executables: $(X_EXECUTABLES)
 
 align.o: align.c dt.h imio.h
-	$(MPICC) $(CFLAGS) -c -DFONT_FILE="$(datadir)/aligntk/font.pgm" align.c
+	$(MPICC) $(CFLAGS) -c -DFONT_FILE="/n/groups/htem/temcagt/alignment_software/share/aligntk/font.pgm" align.c
 
 align: align.o compute_mapping.o dt.o imio.o
 	$(MPICC) $(CFLAGS) -o align align.o compute_mapping.o dt.o imio.o -ltiff -ljpeg -lm -lz
@@ -48,6 +48,12 @@ best_rigid.o: best_rigid.c imio.h
 
 best_rigid: best_rigid.o imio.o
 	$(CC) $(CFLAGS) -o best_rigid best_rigid.o imio.o -ltiff -ljpeg -lm -lz
+
+autoclean_maps.o: autoclean_maps.cc imio.h invert.h
+	$(CXX) $(CFLAGS) -c autoclean_maps.cc
+
+autoclean_maps: 
+	$(CXX) $(CFLAGS) -o autoclean_maps autoclean_maps.o imio.o invert.o -ltiff -ljpeg -lm -lz
 
 clean_maps.o: clean_maps.cc imio.h invert.h
 	$(CXX) $(CFLAGS) -c clean_maps.cc
