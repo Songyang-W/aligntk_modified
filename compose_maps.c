@@ -1,7 +1,7 @@
 /*
  *  compose_maps.c  -  mathematically compose two maps into a single map
  *
- *  Copyright (c) 2010-2013 National Resource for Biomedical
+ *  Copyright (c) 2010-2019 National Resource for Biomedical
  *                          Supercomputing,
  *                          Pittsburgh Supercomputing Center,
  *                          Carnegie Mellon University
@@ -28,6 +28,7 @@
  *
  *  HISTORY
  *    2010  Written by Greg Hood (ghood@psc.edu)
+ *    2019  Added -extrapolate option
  */
 
 #include <stdio.h>
@@ -40,10 +41,16 @@
 #include <limits.h>
 #include <math.h>
 #include <errno.h>
+#include <float.h>
 
 #include "imio.h"
 #include "invert.h"
 
+int Extrapolate (float *prx, float *pry, float *prc,
+		 int ix, int iy, float arrx, float arry,
+		 MapElement* map, int mw, int mh, float threshold,
+		 float confidenceThreshold);
+void RecoverFromFold (int level);
 void Error (char *fmt, ...);
 
 int
@@ -51,6 +58,7 @@ main (int argc, char **argv)
 {
   int invert;
   float thresholdC;
+  float extrapolationDistance;
 
   char map1Name[PATH_MAX];
   MapElement *map1;
@@ -81,6 +89,7 @@ main (int argc, char **argv)
   float ry00, ry01, ry10, ry11;
   float rc00, rc01, rc10, rc11;
   float rrx, rry;
+  float extrapolationThreshold;
 
   int dx, dy;
   double weight;
@@ -94,6 +103,9 @@ main (int argc, char **argv)
   error = 0;
   invert = 0;
   thresholdC = 0.0;
+  extrapolationDistance = 0.0;
+  map1Name[0] = '\0';
+  map2Name[0] = '\0';
   for (i = 1; i < argc; ++i)
     if (strcmp(argv[i], "-map1") == 0)
       {
@@ -102,6 +114,12 @@ main (int argc, char **argv)
             error = 1;
             break;
           }
+	if (map1Name[0] != '\0')
+	  {
+	    fprintf(stderr, "Only one -map1 argument allowed.\n");
+	    error = 1;
+	    break;
+	  }
         strcpy(map1Name, argv[i]);
       }
     else if (strcmp(argv[i], "-inverse_map2") == 0)
@@ -111,6 +129,12 @@ main (int argc, char **argv)
             error = 1;
             break;
           }
+	if (map2Name[0] != '\0')
+	  {
+	    fprintf(stderr, "Only one of -map2 and -inverse_map2 allowed.\n");
+	    error = 1;
+	    break;
+	  }
         strcpy(map2Name, argv[i]);
 	invert = 1;
       }
@@ -121,6 +145,12 @@ main (int argc, char **argv)
             error = 1;
             break;
           }
+	if (map2Name[0] != '\0')
+	  {
+	    fprintf(stderr, "Only one of -map2 and -inverse_map2 allowed.\n");
+	    error = 1;
+	    break;
+	  }
 	invert = 0;
         strcpy(map2Name, argv[i]);
       }
@@ -141,6 +171,14 @@ main (int argc, char **argv)
             break;
           }
       }
+    else if (strcmp(argv[i], "-extrapolate") == 0)
+      {
+	if (++i == argc || sscanf(argv[i], "%f", &extrapolationDistance) != 1)
+	  {
+	    error = 1;
+	    break;
+	  }
+      }
     else
       {
 	error = 1;
@@ -160,6 +198,7 @@ main (int argc, char **argv)
       fprintf(stderr, "            [-inverse_map2 <map_name>]\n");
       fprintf(stderr, "            -output <output_map_name>]\n");
       fprintf(stderr, "            [-threshold_c <float>]\n");
+      fprintf(stderr, "            [-extrapolate <npixels>]\n");
       exit(1);
     }
 
@@ -170,6 +209,10 @@ main (int argc, char **argv)
     Error("-map2 or -inverse_map2 parameter must be specified.\n");
   if (outputMapName[0] == '\0')
     Error("-output parameter must be specified.\n");
+
+  /* check that not both -inverse_map2 and -extrapolate were given */
+  if (invert && extrapolationDistance != 0.0)
+    Error("-extrapolate cannot be used with -inverse_map2 option\n");
 
   if (!ReadMap(map1Name, &map1, &mLevel, &mw, &mh,
 	       &mxMin, &myMin, imgName, refName, msg))
@@ -224,6 +267,7 @@ main (int argc, char **argv)
     }
   else
     {
+      extrapolationThreshold = extrapolationDistance / (1 << mLevel2);
       for (y = 0; y < mh; ++y)
 	for (x = 0; x < mw; ++x)
 	  {
@@ -256,9 +300,21 @@ main (int argc, char **argv)
 		iy < -1 || iy == -1 && rry < 0.999 ||
 		iy == mh2-1 && rry > 0.001 || iy >= mh2)
 	      {
-		omap[y*mw+x].x = 0.0;
-		omap[y*mw+x].y = 0.0;
-		omap[y*mw+x].c = 0.0;
+		if (extrapolationThreshold == 0.0 ||
+		    !Extrapolate(&omap[y*mw+x].x,
+				 &omap[y*mw+x].y,
+				 &omap[y*mw+x].c,
+				 ix, iy, rrx, rry,
+				 map2, mw2, mh2,
+				 extrapolationThreshold,
+				 thresholdC))
+		  {
+		    omap[y*mw+x].x = 0.0;
+		    omap[y*mw+x].y = 0.0;
+		    omap[y*mw+x].c = 0.0;
+		  }
+		omap[y*mw+x].x *= (float) (1 << mLevel2) / (float) (1 << mLevel);
+		omap[y*mw+x].y *= (float) (1 << mLevel2) / (float) (1 << mLevel);
 		continue;
 	      }
 
@@ -308,9 +364,21 @@ main (int argc, char **argv)
 	    
 	    if (rc == 0.0)
 	      {
-		omap[y*mw+x].x = 0.0;
-		omap[y*mw+x].y = 0.0;
-		omap[y*mw+x].c = 0.0;
+		if (extrapolationThreshold == 0.0 ||
+		    !Extrapolate(&omap[y*mw+x].x,
+				 &omap[y*mw+x].y,
+				 &omap[y*mw+x].c,
+				 ix, iy, rrx, rry,
+				 map2, mw2, mh2,
+				 extrapolationThreshold,
+				 thresholdC))
+		  {
+		    omap[y*mw+x].x = 0.0;
+		    omap[y*mw+x].y = 0.0;
+		    omap[y*mw+x].c = 0.0;
+		  }
+		omap[y*mw+x].x *= (float) (1 << mLevel2) / (float) (1 << mLevel);
+		omap[y*mw+x].y *= (float) (1 << mLevel2) / (float) (1 << mLevel);
 		continue;
 	      }
 
@@ -359,6 +427,184 @@ main (int argc, char **argv)
   free(omap);
 
   return(0);
+}
+
+int
+Extrapolate (float *prx, float *pry, float *prc,
+	     int ix, int iy, float arrx, float arry,
+	     MapElement* map, int mw, int mh, float threshold,
+	     float confidenceThreshold)
+{
+  float rx = 0.0;
+  float ry = 0.0;
+  float rc = 0.0;
+  float totalWeight = 0.0;
+  int maxDelta = ((int) ceil(threshold)) + 2;
+  float rrx, rry;
+  int dx, dy;
+  int ixv, iyv;
+  float rx00, rx01, rx10, rx11;
+  float ry00, ry01, ry10, ry11;
+  float rc00, rc01, rc10, rc11;
+  float weight;
+  float rcMin;
+  float d;
+  float xn, yn;
+  float xf, yf;
+  float closestDistance;
+
+  closestDistance = FLT_MAX;
+  for (dy = -maxDelta; dy <= maxDelta; ++dy)
+    {
+      iyv = iy + dy;
+      if (iyv < 0 || iyv >= mh-1)
+	continue;
+      rry = arry - dy;
+
+      for (dx = -maxDelta; dx <= maxDelta; ++dx)
+	{
+	  ixv = ix + dx;
+	  if (ixv < 0 || ixv >= mw-1 ||
+	      map[iyv*mw+ixv].c <= confidenceThreshold ||
+	      map[(iyv+1)*mw+ixv].c <= confidenceThreshold ||
+	      map[iyv*mw+ixv+1].c <= confidenceThreshold ||
+	      map[(iyv+1)*mw+ixv+1].c <= confidenceThreshold)
+	    continue;
+
+	  rrx = arrx - dx;
+
+	  rx00 = map[iyv*mw+ixv].x;
+	  ry00 = map[iyv*mw+ixv].y;
+	  rc00 = map[iyv*mw+ixv].c;
+	  rx01 = map[(iyv+1)*mw+ixv].x;
+	  ry01 = map[(iyv+1)*mw+ixv].y;
+	  rc01 = map[(iyv+1)*mw+ixv].c;
+	  rx10 = map[iyv*mw+ixv+1].x;
+	  ry10 = map[iyv*mw+ixv+1].y;
+	  rc10 = map[iyv*mw+ixv+1].c;
+	  rx11 = map[(iyv+1)*mw+ixv+1].x;
+	  ry11 = map[(iyv+1)*mw+ixv+1].y;
+	  rc11 = map[(iyv+1)*mw+ixv+1].c;
+
+	  if (dx == 0 && dy == 0)
+	    weight = M_SQRT2;
+	  else
+	    weight = 1.0 / hypotf((float) dx, (float) dy);
+
+	  // compute d, the weight to be given to the far-field vs
+	  //    near-field extrapolation;   d is roughly the distance
+	  //    from the map element to the point to be extrapolated,
+	  //    but bounded between 0.0 and 1.0
+	  if (rrx >= 1.0)
+	    if (rry >= 1.0)
+	      if (rrx >= 2.0 || rry >= 2.0)
+		d = 1.0;
+	      else
+		d = hypotf(rrx - 1.0, rry - 1.0);
+	    else if (rry < 0.0)
+	      if (rrx >= 2.0 || rry <= -1.0)
+		d = 1.0;
+	      else
+		d = hypotf(rrx - 1.0, rry);
+	    else
+	      d = rrx - 1.0;
+	  else if (rrx < 0.0)
+	    if (rry >= 1.0)
+	      if (rrx <= -1.0 || rry >= 2.0)
+		d = 1.0;
+	      else
+		d = hypotf(rrx, rry - 1.0);
+	    else if (rry < 0.0)
+	      if (rrx <= -1.0 || rry <= -1.0)
+		d = 1.0;
+	      else
+		d = hypotf(rrx, rry);
+	    else
+	      d = -rrx;
+	  else
+	    if (rry >= 1.0)
+	      d = rry - 1.0;
+	    else if (rry < 0.0)
+	      d = -rry;
+	    else
+	      d = 0.0;
+	  if (d > 1.0)
+	    d = 1.0;
+	  // near-field extrapolation
+	  if (d < 1.0)
+	    {
+	      xn = rx00 * (rrx - 1.0) * (rry - 1.0)
+		- rx10 * rrx * (rry - 1.0) 
+		- rx01 * (rrx - 1.0) * rry
+		+ rx11 * rrx * rry;
+	      yn = ry00 * (rrx - 1.0) * (rry - 1.0)
+		- ry10 * rrx * (rry - 1.0) 
+		- ry01 * (rrx - 1.0) * rry
+		+ ry11 * rrx * rry;
+	    }
+	  else
+	    xn = yn = 0.0;
+	  // far-field extrapolation
+	  if (d > 0.0)
+	    {
+	      xf = 0.5 * ((rx10 - rx00) + (rx11 - rx01)) * (rrx - 0.5) +
+		0.5 * ((rx01 - rx00) + (rx11 - rx10)) * (rry - 0.5) +
+		0.25 * (rx00 + rx10 + rx01 + rx11);
+	      yf = 0.5 * ((ry01 - ry00) + (ry11 - ry10)) * (rry - 0.5) +
+		0.5 * ((ry10 - ry00) + (ry11 - ry01)) * (rrx - 0.5) +
+		0.25 * (ry00 + ry10 + ry01 + ry11);
+	    }
+	  else
+	    xf = yf = 0.0;
+	  // actual extrapolation is a weighted average of the near- and
+	  //    far-field extrapolations
+	  rx += weight * ((1.0 - d) * xn + d * xf);
+	  ry += weight * ((1.0 - d) * yn + d * yf);
+	  rcMin = rc00;
+	  if (rc01 < rcMin)
+	    rcMin = rc01;
+	  if (rc10 < rcMin)
+	    rcMin = rc10;
+	  if (rc11 < rcMin)
+	    rcMin = rc11;
+	  rc += weight * rcMin;
+
+	  totalWeight += weight;
+
+	  // compute d, the distance from the point to this map element
+	  if (rrx >= 1.0)
+	    if (rry >= 1.0)
+	      d = hypotf(rrx - 1.0, rry - 1.0);
+	    else if (rry < 0.0)
+	      d = hypotf(rrx - 1.0, rry);
+	    else
+	      d = rrx - 1.0;
+	  else if (rrx < 0.0)
+	    if (rry >= 1.0)
+	      d = hypotf(rrx, rry - 1.0);
+	    else if (rry < 0.0)
+	      d = hypotf(rrx, rry);
+	    else
+	      d = -rrx;
+	  else
+	    if (rry >= 1.0)
+	      d = rry - 1.0;
+	    else if (rry < 0.0)
+	      d = -rry;
+	    else
+	      d = 0.0;
+
+	  if (d < closestDistance)
+	    closestDistance = d;
+	}
+    }
+  if (totalWeight == 0.0 ||
+      closestDistance > threshold)
+    return(0);
+  *prx = rx / totalWeight;
+  *pry = ry / totalWeight;
+  *prc = rc / totalWeight;
+  return(1);
 }
 
 void Error (char *fmt, ...)
