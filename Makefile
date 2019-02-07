@@ -15,7 +15,7 @@ datadir = ${datarootdir}
 TARGETS = nox_executables x_executables
 INSTALL_TARGETS = nox_install x_install
 
-NOX_EXECUTABLES = align apply_map autoclean_maps best_affine best_rigid combine_masks compare_images compare_maps compose_maps extrapolate_map find_rst gen_imaps gen_mask gen_pyramid merge_images ortho prun reduce reduce_mask register transform
+NOX_EXECUTABLES = align apply_map autoclean_maps best_affine best_rigid combine_masks compare_images compare_maps compose_maps extrapolate_map find_rst gen_imaps gen_mask gen_pyramid merge_images ortho prun reduce reduce_mask register transform rotate_map
 X_EXECUTABLES = clean_maps inspector
 FLTK_LIBS= -L/n/groups/htem/temcagt/alignment_software/fltk/lib -I/n/groups/htem/temcagt/alignment_software/fltk/include -L/usr/lib64 -lXext -lX11 -ldl -lXfixes -lXft -lfontconfig -lXrender -lfltk -lfltk_gl -lGL -lGLU
 
@@ -52,7 +52,7 @@ best_rigid: best_rigid.o imio.o
 autoclean_maps.o: autoclean_maps.cc imio.h invert.h
 	$(CXX) $(CFLAGS) -c autoclean_maps.cc
 
-autoclean_maps: 
+autoclean_maps: autoclean_maps.o imio.o invert.o
 	$(CXX) $(CFLAGS) -o autoclean_maps autoclean_maps.o imio.o invert.o -ltiff -ljpeg -lm -lz
 
 clean_maps.o: clean_maps.cc imio.h invert.h
@@ -121,6 +121,12 @@ inspector.o: inspector.cc imio.h invert.h
 inspector: inspector.o imio.o invert.o
 	$(CXX) $(CFLAGS) -o inspector inspector.o imio.o invert.o $(FLTK_LIBS) -ltiff -ljpeg -lm -lz
 
+invert.o: invert.c imio.h
+	$(CC) $(CFLAGS) -c invert.c
+
+invert_map: invert.o imio.o
+	$(CC) $(CFLAGS) -o invert_map invert.o imio.o -ltiff -ljpeg -lm -lz
+
 libpar.o: libpar.c par.h
 	$(MPICC) $(CFLAGS) -c libpar.c
 
@@ -165,6 +171,12 @@ transform.o: transform.c imio.h
 
 transform: transform.o imio.o
 	$(CC) $(CFLAGS) -o transform transform.o imio.o -ltiff -ljpeg -lm -lz
+
+rotate_map.o: rotate_map.c imio.h
+	$(CC) $(CFLAGS) -c rotate_map.c
+
+rotate_map: rotate_map.o imio.o
+	$(CC) $(CFLAGS) -o rotate_map rotate_map.o imio.o -ltiff -ljpeg -lm -lz
 
 check:
 	cd checkdir; ./check.sh
