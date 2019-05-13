@@ -49,6 +49,9 @@
 #include "invert.h"
 #include "dt.h"
 
+#include <iostream>
+#include <fstream>
+
 #define LINE_LENGTH		255
 #define MAX_LABEL_LENGTH	255
 #define QUOTE(str)		#str
@@ -544,11 +547,8 @@ main (int argc, char **argv, char **envp)
   if (range == 0.0)
     Error("White value cannot be same as black value\n");
 
-    // Object to read from file
-      ifstream file_obj;
 
-      // Opening file in input mode
-      file_obj.open("Input.txt", ios::in);
+
 
 
   /* load the font (if necessary) */
@@ -567,234 +567,21 @@ main (int argc, char **argv, char **envp)
       fontHeight = fontHeight / 95;
     }
 
-  if (imageName[0] != '\0')
-    {
-      images = (Image *) malloc(sizeof(Image));
-      images[0].name = (char *) malloc(strlen(imageName) + 1);
-      strcpy(images[0].name, imageName);
-      images[0].width = -1;
-      images[0].height = -1;
-      images[0].image = NULL;
-      images[0].mask = NULL;
-      images[0].dist = NULL;
-      images[0].map = NULL;
-      images[0].invMap = NULL;
-      images[0].imap = NULL;
-      images[0].targetMap = NULL;
-      nImages = 1;
-      imagesSize = 1;
-    }
-  else
-    {
-      /* read the image list */
-      nImages = 0;
-      imagesSize = 0;
-      f = fopen(imageListName, "r");
-      if (f == NULL)
-	Error("Could not open file %s for reading\n", imageListName);
-      while (fgets(line, LINE_LENGTH, f) != NULL)
-	{
-	  if (line[0] == '\0' || line[0] == '#')
-	    continue;
-	  width = -1;
-	  height = -1;
-	  nItems = sscanf(line, "%s%d%d", imageName, &width, &height);
-	  if (nItems != 1 && nItems != 3)
-	    Error("Malformed line in %s:\n%s\n", imageListName, line);
+  // Object to read from file
+  std::ifstream file_obj;
+  // Opening file in input mode
+  file_obj.open("test_saved_image_metadata.dat", std::ios::in);
+  if( !file_obj.good() )
+      Error("Could not open test_saved_image_metadata.dat");
+  file_obj.read((char*)&nImages, sizeof(nImages));
+  images = (Image *) realloc(images, nImages * sizeof(Image));
+  file_obj.read((char*)images,nImages*sizeof(Image));
 
-	  if (nImages >= imagesSize)
-	    {
-	      imagesSize = (imagesSize > 0) ? imagesSize * 2 : 64;
-	      images = (Image*) realloc(images, imagesSize * sizeof(Image));
-	    }
-	  images[nImages].name = (char*) malloc(strlen(imageName) + 1);
-	  strcpy(images[nImages].name, imageName);
-	  images[nImages].width = width;
-	  images[nImages].height = height;
-	  images[nImages].image = NULL;
-	  images[nImages].mask = NULL;
-	  images[nImages].dist = NULL;
-	  images[nImages].map = NULL;
-	  images[nImages].invMap = NULL;
-	  images[nImages].imap = NULL;
-	  images[nImages].targetMap = NULL;
-	  ++nImages;
-	}
-      fclose(f);
-      images = (Image *) realloc(images, nImages * sizeof(Image));
-      printf("nImages = %d\n", nImages);
-    }
-  for (i = 0; i < nImages; ++i)
-    {
-      /* check that the image exists and get its modification time */
-      /* FIX:  TEMPORARY HACK */
-      sprintf(fn, "%s%s.%s", imagesName, images[i].name, extension);
-      if (stat(fn, &sb) != 0)
-	{
-	  sprintf(fn, "%s%s.tif", imagesName, images[i].name);
-	  if (stat(fn, &sb) != 0)
-	    Error("Could not stat file %s\n", fn);
-	}
-      if (S_ISDIR(sb.st_mode))
-	Error("Image %s is a directory.\n", fn);
-      images[i].mtime = sb.st_mtime;
-
-      /* read the image size */
-      if (images[i].width < 0 || images[i].height < 0)
-	{
-	  if (!ReadImageSize(fn, &width, &height, msg))
-	    Error("Could not determine image size of %s:\n%s\n", fn, msg);
-	  images[i].width = width;
-	  images[i].height = height;
-	}
-    }
-
-  printf("Previewing maps: ");
-  fflush(stdout);
-  oMinX = 1000000000;
-  oMaxX = -1000000000;
-  oMinY = 1000000000;
-  oMaxY = -1000000000;
-  map = NULL;
-  imap = NULL;
   sourceMapFactor = 1 << sourceMapLevel;
   sourceMapMask = sourceMapFactor - 1;
   targetMapsFactor = 1 << targetMapsLevel;
-  for (i = 0; i < nImages; ++i)
-    {
-      sprintf(fn, "%s%s.map", mapsName, images[i].name);
-      if (stat(fn, &sb) != 0)
-	Error("Could not stat map %s\n", fn);
-      if (sb.st_mtime > images[i].mtime)
-	images[i].mtime = sb.st_mtime;
-      if (!ReadMap(fn, &map, &mLevel,
-		   &mw, &mh, &mxMin, &myMin,
-		   imName0, imName1,
-		   msg))
-	Error("Could not read map %s:\n  error: %s\n",
-	      fn, msg);
-
-      spacing = (1 << mLevel) * mapScale;
-      minX = 1000000000;
-      maxX = -1000000000;
-      minY = 1000000000;
-      maxY = -1000000000;
-      for (y = 0; y < mh-1; ++y)
-	for (x = 0; x < mw-1; ++x)
-	  {
-	    if (map[y*mw+x].c == 0.0 ||
-		map[y*mw+x+1].c == 0.0 ||
-		map[(y+1)*mw+x].c == 0.0 ||
-		map[(y+1)*mw+x+1].c == 0.0)
-	      continue;
-	    for (dy = 0; dy < 2; ++dy)
-	      for (dx = 0; dx < 2; ++dx)
-		{
-		  rx = map[(y+dy)*mw+x+dx].x * spacing;
-		  ry = map[(y+dy)*mw+x+dx].y * spacing;
-		  if (rotation != 0.0)
-		    {
-		      rxp = rx - rotationX;
-		      ryp = ry - rotationY;
-		      rx = cosRot * rxp + sinRot * ryp + rotationX;
-		      ry = -sinRot * rxp + cosRot * ryp + rotationY;
-		    }
-		  if (rx < minX)
-		    minX = rx;
-		  if (rx > maxX)
-		    maxX = rx;
-		  if (ry < minY)
-		    minY = ry;
-		  if (ry > maxY)
-		    maxY = ry;
-		}
-	  }
-      free(map);
-      images[i].mapBytes = mw * mh * (sizeof(MapElement) + sizeof(InverseMapElement) +
-				      sizeof(unsigned char)) +
-	5 * 5 * sizeof(long long) +
-	sizeof(InverseMap) +
-	256;
-
-      printf("IMAGE BOUNDS[%d] = %f %f %f %f\n", i, minX, maxX, minY, maxY);
-      images[i].minX = minX;
-      images[i].maxX = maxX;
-      images[i].minY = minY;
-      images[i].maxY = maxY;
-
-      if (minX < oMinX)
-	oMinX = (int) floor(minX);
-      if (maxX > oMaxX)
-	oMaxX = (int) ceil(maxX);
-      if (minY < oMinY)
-	oMinY = (int) floor(minY);
-      if (maxY > oMaxY)
-	oMaxY = (int) ceil(maxY);
-
-      if (imapsName[0] != '\0')
-	{
-	  sprintf(fn, "%s%s.map", imapsName, images[i].name);
-	  if (!ReadMap(fn, &imap, &imapLevel,
-		       &imapw, &imaph, &imapXMin, &imapYMin,
-		       imapName0, imapName1,
-		       msg))
-	    Error("Could not read map %s:\n  error: %s\n",
-		  fn, msg);
-	  images[i].mapBytes += imapw * imaph * sizeof(MapElement);
-	  free(imap);
-	}
-
-      if (targetMapsName[0] != '\0')
-	images[i].mapBytes +=
-	  ((images[i].width + targetMapsFactor - 1) / targetMapsFactor) *
-	  ((images[i].height + targetMapsFactor - 1) / targetMapsFactor) *
-	  sizeof(MapElement);
-
-      if ((nProcessed % 50) == 0 && nProcessed != 0)
-	printf(" %d\n    ", nProcessed);
-      printf(".");
-      fflush(stdout);
-      ++nProcessed;
-    }
 
   printf("\nAll images previewed.\n");
-  oWidth = oMaxX - oMinX + 1;
-  oHeight = oMaxY - oMinY + 1;
-  printf("output width = %zu (%d to %d) output height = %zu (%d to %d)\n\n",
-	 oWidth, oMinX, oMaxX,
-	 oHeight, oMinY, oMaxY);
-
-  ni=0
-  f = fopen(imageListName, "r");
-  while (fgets(line, LINE_LENGTH, f) != NULL)
-  {
-          if (line[0] == '\0' || line[0] == '#')
-                  continue;
-          width = -1;
-          height = -1;
-          nItems = sscanf(line, "%s%d%d", imageName, &width, &height);
-          if (nItems != 1 && nItems != 3)
-                  Error("Malformed line in %s:\n%s\n", imageListName, line);
-
-          if (nImages >= imagesSize)
-          {
-                  imagesSize = (imagesSize > 0) ? imagesSize * 2 : 64;
-                  images = (Image*) realloc(images, imagesSize * sizeof(Image));
-          }
-          images[ni].name = (char*) malloc(strlen(imageName) + 1);
-          strcpy(images[ni].name, imageName);
-          images[ni].image = NULL;
-          images[ni].mask = NULL;
-          images[ni].dist = NULL;
-          images[ni].map = NULL;
-          images[ni].invMap = NULL;
-          images[ni].imap = NULL;
-          images[ni].targetMap = NULL;
-          ++ni;
-  }
-  fclose(f);
-  //images = (Image *) realloc(images, nImages * sizeof(Image));
-  printf("nImages = %d\n", ni);
 
   if (regionWidth > 0)
     {
@@ -802,6 +589,7 @@ main (int argc, char **argv, char **envp)
       oHeight = regionHeight;
       oMinX = regionOffsetX;
       oMinY = regionOffsetY;
+
     }
 
   oWidth = ((oWidth + reductionFactor - 1) / reductionFactor) *
@@ -811,6 +599,9 @@ main (int argc, char **argv, char **envp)
   oMaxX = oMinX + ((int) oWidth) - 1;
   oMaxY = oMinY + ((int) oHeight) - 1;
 
+  printf("output width = %zu (%d to %d) output height = %zu (%d to %d)\n\n",
+         oWidth, oMinX, oMaxX,
+         oHeight, oMinY, oMaxY);
   if (overlay)
     nOutputImages = 1;
   else
@@ -1513,7 +1304,6 @@ PaintImage (int i, int minX, int maxX, int minY, int maxY)
   /* read in map if necessary */
   if (images[i].map == NULL)
     {
-      printf("Trying to read map");
       sprintf(fn, "%s%s.map", mapsName, images[i].name);
       if (!ReadMap(fn, &(images[i].map), &(images[i].mLevel),
 		   &(images[i].mw), &(images[i].mh),
@@ -1552,7 +1342,6 @@ PaintImage (int i, int minX, int maxX, int minY, int maxY)
   /* read in image if necessary */
   if (images[i].image == NULL)
     {
-        printf("Trying to read image");
       sprintf(fn, "%s%s", imagesName, images[i].name);
       if (!ReadImage(fn, &(images[i].image),
 		     &iw, &ih,
