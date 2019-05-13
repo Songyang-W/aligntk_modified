@@ -570,7 +570,7 @@ main (int argc, char **argv, char **envp)
   // Object to read from file
   std::ifstream file_obj;
   // Opening file in input mode
-  file_obj.open("test_saved_image_metadata.dat", ios::in);
+  file_obj.open("test_saved_image_metadata.dat", std::ios::in);
   if( !file_obj.good() )
       Error("Could not open test_saved_image_metadata.dat");
   nImages = file_obj.read((char*)&nImages, sizeof(nImages));
