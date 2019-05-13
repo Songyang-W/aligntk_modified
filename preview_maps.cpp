@@ -764,7 +764,7 @@ main (int argc, char **argv, char **envp)
         std::ofstream file_obj;
         file_obj.open("test_saved_image_metadata.dat",std::ios::app);
         file_obj.write((char*)&nImages, sizeof(nImages));
-        file_obj.write((char*)&images, sizeof(images));
+        file_obj.write((char*)images, nImages*sizeof(Image));
 
         printf("done.\n");
         fflush(stdout);
