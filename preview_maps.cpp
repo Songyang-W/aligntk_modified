@@ -30,13 +30,6 @@
  *             images (ghood@psc.edu)
  */
 
-// This is using z5 from https://github.com/constantinpape/z5
-// I will put them on orchestra in our path
-#include "xtensor/xarray.hxx"
-#include "z5/dataset_factory.hxx"
-#include "z5/multiarray/xtensor_access.hxx"
-#include "json.hpp"
-
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
