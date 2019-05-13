@@ -603,8 +603,6 @@ main (int argc, char **argv, char **envp)
           }
           images[ni].name = (char*) malloc(strlen(imageName) + 1);
           strcpy(images[ni].name, imageName);
-          images[ni].width = width;
-          images[ni].height = height;
           images[ni].image = NULL;
           images[ni].mask = NULL;
           images[ni].dist = NULL;
