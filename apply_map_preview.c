@@ -574,7 +574,7 @@ main (int argc, char **argv, char **envp)
   if( !file_obj.good() )
       Error("Could not open test_saved_image_metadata.dat");
   file_obj.read((char*)&nImages, sizeof(nImages));
-  images = (Image *) realloc(images, nImages * sizeof(Image));
+  images = (Image *) malloc(nImages * sizeof(Image));
   file_obj.read((char*)images,nImages*sizeof(Image));
 
   sourceMapFactor = 1 << sourceMapLevel;
