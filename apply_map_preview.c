@@ -577,6 +577,10 @@ main (int argc, char **argv, char **envp)
   images = (Image *) realloc(images, nImages * sizeof(Image));
   file_obj.read((char*)images,nImages*sizeof(Image));
 
+  sourceMapFactor = 1 << sourceMapLevel;
+  sourceMapMask = sourceMapFactor - 1;
+  targetMapsFactor = 1 << targetMapsLevel;
+
   printf("\nAll images previewed.\n");
 
   if (regionWidth > 0)
@@ -585,6 +589,7 @@ main (int argc, char **argv, char **envp)
       oHeight = regionHeight;
       oMinX = regionOffsetX;
       oMinY = regionOffsetY;
+
     }
 
   oWidth = ((oWidth + reductionFactor - 1) / reductionFactor) *
@@ -594,6 +599,9 @@ main (int argc, char **argv, char **envp)
   oMaxX = oMinX + ((int) oWidth) - 1;
   oMaxY = oMinY + ((int) oHeight) - 1;
 
+  printf("output width = %zu (%d to %d) output height = %zu (%d to %d)\n\n",
+         oWidth, oMinX, oMaxX,
+         oHeight, oMinY, oMaxY);
   if (overlay)
     nOutputImages = 1;
   else
