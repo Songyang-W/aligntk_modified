@@ -583,6 +583,44 @@ main (int argc, char **argv, char **envp)
 
   printf("\nAll images previewed.\n");
 
+  int ni = 0;
+  f = fopen(imageListName, "r");
+  if (f == NULL)
+          Error("Could not open file %s for reading\n", imageListName);
+  while (fgets(line, LINE_LENGTH, f) != NULL)
+  {
+          if (line[0] == '\0' || line[0] == '#')
+                  continue;
+          width = -1;
+          height = -1;
+          nItems = sscanf(line, "%s%d%d", imageName, &width, &height);
+          if (nItems != 1 && nItems != 3)
+                  Error("Malformed line in %s:\n%s\n", imageListName, line);
+
+          if (nImages >= imagesSize)
+          {
+                  imagesSize = (imagesSize > 0) ? imagesSize * 2 : 64;
+                  images = (Image*) realloc(images, imagesSize * sizeof(Image));
+          }
+          images[ni].name = (char*) malloc(strlen(imageName) + 1);
+          strcpy(images[ni].name, imageName);
+          images[ni].width = width;
+          images[ni].height = height;
+          images[ni].image = NULL;
+          images[ni].mask = NULL;
+          images[ni].dist = NULL;
+          images[ni].map = NULL;
+          images[ni].invMap = NULL;
+          images[ni].imap = NULL;
+          images[ni].targetMap = NULL;
+          ++ni;
+  }
+  fclose(f);
+  //images = (Image *) realloc(images, nImages * sizeof(Image));
+  printf("nImages = %d\n", ni);
+
+
+
   if (regionWidth > 0)
     {
       oWidth = regionWidth;
