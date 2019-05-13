@@ -573,10 +573,9 @@ main (int argc, char **argv, char **envp)
   file_obj.open("test_saved_image_metadata.dat", std::ios::in);
   if( !file_obj.good() )
       Error("Could not open test_saved_image_metadata.dat");
-  nImages = file_obj.read((char*)&nImages, sizeof(nImages));
+  file_obj.read((char*)&nImages, sizeof(nImages));
   images = (Image *) realloc(images, nImages * sizeof(Image));
-  images = file_obj.read((char*)images,nImages*sizeof(Image));
-
+  file_obj.read((char*)images,nImages*sizeof(Image));
 
   printf("\nAll images previewed.\n");
 
