@@ -597,10 +597,9 @@ main (int argc, char **argv, char **envp)
           if (nItems != 1 && nItems != 3)
                   Error("Malformed line in %s:\n%s\n", imageListName, line);
 
-          if (nImages >= imagesSize)
+          if (ni > nImages)
           {
-                  imagesSize = (imagesSize > 0) ? imagesSize * 2 : 64;
-                  images = (Image*) realloc(images, imagesSize * sizeof(Image));
+            Error("Too many images???");
           }
           images[ni].name = (char*) malloc(strlen(imageName) + 1);
           strcpy(images[ni].name, imageName);
