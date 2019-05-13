@@ -49,6 +49,9 @@
 #include "invert.h"
 #include "dt.h"
 
+#include <iostream>
+#include <fstream>
+
 #define LINE_LENGTH		255
 #define MAX_LABEL_LENGTH	255
 #define QUOTE(str)		#str
@@ -544,8 +547,7 @@ main (int argc, char **argv, char **envp)
   if (range == 0.0)
     Error("White value cannot be same as black value\n");
 
-  // Object to read from file
-  ifstream file_obj;
+
 
 
 
@@ -565,7 +567,8 @@ main (int argc, char **argv, char **envp)
       fontHeight = fontHeight / 95;
     }
 
-
+  // Object to read from file
+  std::ifstream file_obj;
   // Opening file in input mode
   file_obj.open("test_saved_image_metadata.dat", ios::in);
   if( !file_obj.good() )
