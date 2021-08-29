@@ -5464,7 +5464,7 @@ CreateDirectories (char *fn)
 	  return(0);
 	}
       
-      if (mkdir(dn, 0777) != 0)
+      if (mkdir(dn, 0775) != 0)
 	{
 	  Log("Could not create directory %s\n", dn);
 	  return(0);
