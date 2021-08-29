@@ -32,6 +32,7 @@
  *    2011  Generalized and embedded in a framework similar
  *              to that of align12.c (ghood@psc.edu)
  *    2017  Eliminated requirement to keep all images in memory simultaneouly
+ *          Added -black and -white options.
  */
 
 #include <stdio.h>
@@ -137,6 +138,7 @@ char mapListName[PATH_MAX];
 char mapsName[PATH_MAX];
 char masksName[PATH_MAX];
 char outputName[PATH_MAX];
+double blackLevel, whiteLevel;
 int epochIterations = 512;
 
 int nImages = 0;
@@ -316,7 +318,6 @@ main (int argc, char **argv)
 
   float maxStep;
   char imgName[PATH_MAX];
-  float blackLevel, whiteLevel;
   double delta;
   int nPixels;
   double sum;
@@ -357,6 +358,8 @@ main (int argc, char **argv)
       mapsName[0] = '\0';
       masksName[0] = '\0';
       outputName[0] = '\0';
+      blackLevel = 1.0;
+      whiteLevel = 99.0;
 
       for (i = 0; i < argc; ++i)
 	Log("ARGV[%d] = %s\n", i, argv[i]);
@@ -433,6 +436,24 @@ main (int argc, char **argv)
 		break;
 	      }
 	  }
+	else if (strcmp(argv[i], "-black") == 0)
+	  {
+	    if (++i == argc ||
+		sscanf(argv[i], "%lf", &blackLevel) != 1)
+	      {
+		error = 1;
+		break;
+	      }
+	  }
+	else if (strcmp(argv[i], "-white") == 0)
+	  {
+	    if (++i == argc ||
+		sscanf(argv[i], "%lf", &whiteLevel) != 1)
+	      {
+		error = 1;
+		break;
+	      }
+	  }
 	else
 	  {
 	    fprintf(stderr, "Unrecognized option: %s\n", argv[i]);
@@ -447,6 +468,8 @@ main (int argc, char **argv)
 	  fprintf(stderr, "              -output output_prefix\n");
 	  fprintf(stderr, "             [-map_list maps_file]\n");
 	  fprintf(stderr, "             [-histograms histograms_prefix]\n");
+	  fprintf(stderr, "             [-black histogram_percentage]\n");
+	  fprintf(stderr, "             [-white histogram_percentage]\n");
 	  exit(1);
 	}
       
@@ -472,7 +495,9 @@ main (int argc, char **argv)
       MPI_Bcast(mapsName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
       MPI_Bcast(masksName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
       MPI_Bcast(outputName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
-      MPI_Bcast(&level, 1, MPI_INT, 0, MPI_COMM_WORLD) != MPI_SUCCESS)
+      MPI_Bcast(&level, 1, MPI_INT, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
+      MPI_Bcast(&blackLevel, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
+      MPI_Bcast(&whiteLevel, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD) != MPI_SUCCESS)
     Error("Broadcast of parameters failed.\n");
   spacing = 1 << level;
 
@@ -919,9 +944,9 @@ main (int argc, char **argv)
   for (j = 0; j < 256; ++j)
     {
       total += globalHistogram[j];
-      if (globalBlack < 0 && total >= globalTotal / 100)
+      if (globalBlack < 0 && ((double) total) >= 0.01 * blackLevel * ((double) globalTotal))
 	globalBlack = j;
-      if (globalWhite < 0 && total >= 99 * globalTotal / 100)
+      if (globalWhite < 0 && ((double) total) >= 0.01 * whiteLevel * ((double) globalTotal))
 	globalWhite = j;
     }
 
@@ -1371,9 +1396,9 @@ ConstructIntraImageSprings (int i)
   for (j = 0; j < 256; ++j)
     {
       total += hist[j];
-      if (imageBlack < 0 && total > imageTotal / 100)
+      if (imageBlack < 0 && ((double) total) >= 0.01 * blackLevel * ((double) imageTotal))
 	imageBlack = j;
-      if (imageWhite < 0 && total > 99 * imageTotal / 100)
+      if (imageWhite < 0 && ((double) total) >= 0.01 * whiteLevel * ((double) imageTotal))
 	imageWhite = j;
     }
   if (imageBlack < globalBlack)
@@ -2205,7 +2230,7 @@ CreateDirectories (char *fn)
 	  return(0);
 	}
       
-      if (mkdir(dn, 0777) != 0 && errno != EEXIST)
+      if (mkdir(dn, 0775) != 0 && errno != EEXIST)
 	{
 	  Log("Could not create directory %s\n", dn);
 	  return(0);
