@@ -35,7 +35,7 @@ main (int argc, char **argv)
   inputName[0] = '\0';
   outputName[0] = '\0';
   factor = 0;
-  for (i = 0; i < argc; ++i)
+  for (i = 1; i < argc; ++i)
     if (strcmp(argv[i], "-input") == 0)
       {
 	if (++i == argc)
@@ -136,3 +136,4 @@ main (int argc, char **argv)
     }
   free(out);
 }
+
