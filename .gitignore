@@ -1,6 +1,7 @@
 *.o
 align
 apply_map
+autoclean_maps
 best_affine
 best_rigid
 build/
@@ -15,10 +16,12 @@ gen_imaps
 gen_mask
 gen_pyramid
 inspector
+invert_map
 merge_images
 ortho
 prun
 reduce
 reduce_mask
 register
+rotate_map
 transform
