@@ -12,7 +12,7 @@ DOWNLOADS AND DOCUMENTATION:
   The most recent release and full documentation for AlignTK is
   available at http://mmbios.org/index.php/software/aligntk .
 
-QUICK INSTALLATION:
+QUICK INSTALLATION - GENERAL USERS:
 
   Package prerequisites:  FFTW, FLTK, libtiff, libjpeg, zlib
 
@@ -20,6 +20,12 @@ QUICK INSTALLATION:
   make
   make check  [this is optional]
   sudo make install
+
+QUICK INSTALLATION - LEE LAB ON HMS O2 CLUSTER:
+
+  While logged into o2.hms.harvard.edu:
+
+  ./install_on_o2.sh
 
 QUESTIONS:
 
