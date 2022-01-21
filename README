@@ -1,4 +1,4 @@
-README -- AlignTK Version 1.1
+AlignTK Version 1.1
 -------------------------------
 
 AlignTK is a toolkit designed for batch-oriented alignment of a large
@@ -7,10 +7,14 @@ been applied most extensively to electron-microscopy (EM) images of
 neural tissue, the package can be used with arbitrary grayscale
 images.  Multiple image formats are supported.
 
+
 DOWNLOADS AND DOCUMENTATION:
 
-  The most recent release and full documentation for AlignTK is
-  available at http://mmbios.org/index.php/software/aligntk .
+  The most recent official release and full documentation for
+  AlignTK are available at https://mmbios.pitt.edu/aligntk-home
+
+  See CHANGELOG.md for changes made since the official release
+
 
 QUICK INSTALLATION - GENERAL USERS:
 
@@ -21,15 +25,18 @@ QUICK INSTALLATION - GENERAL USERS:
   make check  [this is optional]
   sudo make install
 
+
 QUICK INSTALLATION - LEE LAB ON HMS O2 CLUSTER:
 
   While logged into o2.hms.harvard.edu:
 
   ./install_on_o2.sh
 
+
 QUESTIONS:
 
    Please e-mail any questions you may have about AlignTK to aligntk@psc.edu.
+
 
 MAILING LIST:
 
