@@ -398,7 +398,7 @@ main (int argc, char **argv)
   ++nLevels;
 
   printf("Output image pyramid will have %d levels.\n", nLevels);
-  if (mkdir(outputName, 0777) != 0 &&
+  if (mkdir(outputName, 0775) != 0 &&
       errno != EEXIST)
     {
       fprintf(stderr, "Could not create output directory %s\n", outputName);
@@ -413,7 +413,7 @@ main (int argc, char **argv)
   for (lvl = 0; lvl < nLevels; ++lvl)
     {
       sprintf(fn, "%s/%d", outputName, lvl);
-      if (mkdir(fn, 0777) != 0 &&
+      if (mkdir(fn, 0775) != 0 &&
 	  errno != EEXIST)
 	{
 	  fprintf(stderr, "Could not create directory %s\n", fn);
@@ -422,7 +422,7 @@ main (int argc, char **argv)
       if (subdirName[0] != '\0')
 	{
 	  sprintf(fn, "%s/%d/%s", outputName, lvl, subdirName);
-	  if (mkdir(fn, 0777) != 0 &&
+	  if (mkdir(fn, 0775) != 0 &&
 	      errno != EEXIST)
 	    {
 	      fprintf(stderr, "Could not create directory %s\n", fn);
@@ -455,7 +455,7 @@ main (int argc, char **argv)
       for (by = 0; by < nVertOutputTiles[lvl]; ++by)
 	{
 	  sprintf(fn, "%s/%d/%s/%d", outputName, lvl, subdirName, by);
-	  if (mkdir(fn, 0777) != 0 &&
+	  if (mkdir(fn, 0775) != 0 &&
 	      errno != EEXIST)
 	    {
 	      fprintf(stderr, "Could not create directory %s\n", fn);

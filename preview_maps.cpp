@@ -1473,7 +1473,7 @@ CreateDirectories (char *fn)
                 if (errno != ENOENT)
                         Error("Could not stat directory %s\n", dn);
 
-                if (mkdir(dn, 0777) != 0)
+                if (mkdir(dn, 0775) != 0)
                         Error("Could not create directory %s\n", dn);
         }
         return(1);

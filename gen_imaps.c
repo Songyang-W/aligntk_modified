@@ -2,7 +2,7 @@
  * genimaps.c  - generate a set of intensity maps using a relaxation
  *                algorithm on a system of springs
  *
- *  Copyright (c) 2009-2013 National Resource for Biomedical
+ *  Copyright (c) 2009-2017 National Resource for Biomedical
  *                          Supercomputing,
  *                          Pittsburgh Supercomputing Center,
  *                          Carnegie Mellon University
@@ -31,6 +31,8 @@
  *    2009  Development of intrasection_genimaps.c (ghood@psc.edu)
  *    2011  Generalized and embedded in a framework similar
  *              to that of align12.c (ghood@psc.edu)
+ *    2017  Eliminated requirement to keep all images in memory simultaneouly
+ *          Added -black and -white options.
  */
 
 #include <stdio.h>
@@ -77,7 +79,10 @@ typedef struct Image
   char *name;   	/* name of this image */
   int width, height;    /* width and height in pixels */
   int owner;		/* which process owns the image */
-  int needed;		/* true if this image is needed in this process */ 
+  int needed;		/* number of times that this image is needed
+			   locally during spring setup */
+  int used;		/* number of times that this image has been used
+			   locally during spring setup */
   unsigned char *sendTo;/* bitmask of the processes that this image should
 			   be sent to */
   int nx, ny;           /* number of nodes in x and y */
@@ -89,16 +94,22 @@ typedef struct Image
   unsigned char *mask;  /* mask of valid pixels */
   unsigned int *histogram;   /* histogram of pixel values for the entire image */
   unsigned short *nodeHistograms;
+  int maps0;		/* linked list of maps that have this image as image0 */
+  int maps1;		/* linked list of maps that have this image as image1 */
 } Image;
 
 typedef struct InterImageMap
 {
+  /* NOTE: maps will only be stored in processes where they are relevant, i.e.,
+     where either image0 or image1 is owned by that process */
   char *name;           /* filename of map */
   int image0;           /* index of source image */
   int image1;           /* index of target (reference) image */
   float energyFactor;   /* either 0.0 or 1.0; determines whether this entry
 			   contributes to the energy sum on this node */
   float k;		/* overall spring constant for this map */
+  int nextOfImage0;	/* next map that has the same image0 */
+  int nextOfImage1;	/* next map that has the same image1 */
 } InterImageMap;
 
 typedef struct CommPhase
@@ -120,12 +131,14 @@ typedef struct CommPhase
 int p;      /* rank of this process */
 int np;     /* number of processes in this run */
 
+char histogramsName[PATH_MAX];
 char imagesName[PATH_MAX];
 char imageListName[PATH_MAX];
 char mapListName[PATH_MAX];
 char mapsName[PATH_MAX];
 char masksName[PATH_MAX];
 char outputName[PATH_MAX];
+double blackLevel, whiteLevel;
 int epochIterations = 512;
 
 int nImages = 0;
@@ -157,9 +170,14 @@ float threshold = 1.0;  /* ppm change per iteration */
 int level = 6;
 int spacing;		/* 2^level = pixels between intensity map points in x and y */
 
+int globalBlack, globalWhite;
+
 #define DIR_HASH_SIZE	8192
 char *dirHash[DIR_HASH_SIZE];
 
+void ConstructImageNodes (int i);
+void ConstructIntraImageSprings (int i);
+void ConstructInterImageSprings (int mi);
 void Error (char *fmt, ...);
 void Log (char *fmt, ...);
 void PlanCommunications ();
@@ -180,7 +198,6 @@ main (int argc, char **argv)
   int im;
   int n;
   float rx, ry, rc;
-  int irx, iry;
   float rrx, rry;
   float xv, yv;
   int dx, dy;
@@ -211,9 +228,6 @@ main (int argc, char **argv)
   struct stat sb;
   int ixv, iyv;
   int ind;
-  float rx00, rx01, rx10, rx11;
-  float ry00, ry01, ry10, ry11;
-  float rc00, rc01, rc10, rc11;
   time_t lastOutput;
   int cx, cy;
   float maxF;
@@ -225,10 +239,6 @@ main (int argc, char **argv)
   char triggerName[PATH_MAX];
   unsigned int hv;
   int found;
-  int mLevel;
-  int mw, mh;
-  int mxMin, myMin;
-  char imName0[PATH_MAX], imName1[PATH_MAX];
   int imageParamsSize;
   int imageParamsPos;
   float *imageParams;
@@ -264,12 +274,8 @@ main (int argc, char **argv)
   unsigned char *image0, *image1;
   int i0, i1;
   char msg[PATH_MAX+256];
-  MapElement *map;
-  InverseMap *iMap;
-  int mFactor;
   int prevX, prevY;
   InterImageMap *m;
-  Node *nodes0, *nodes1;
   Node *nodes;
   int phase;
   int op;
@@ -292,51 +298,35 @@ main (int argc, char **argv)
   int count;
   int maskWidth, maskHeight;
   int ixMin, ixMax, iyMin, iyMax;
-
+  
   unsigned short *nh;
   unsigned int *ih;
   unsigned int rh[256];
   double dgh[256];
   double globalHistogram[256];
 
-  long long globalTotal;
-  long long imageTotal;
   long long total;
-  int globalBlack, globalWhite;
+  long long globalTotal;
   int imageWidth, imageHeight;
   unsigned short *nodeHistograms;
   int mode;
   int range;
   int imageBlack, imageGray, imageWhite;
-  int nLevelSpringsBlack, nLevelSpringsWhite;
-  int nIntraSpringsBlack, nIntraSpringsWhite;
-  int nInterSpringsBlack, nInterSpringsWhite;
   int nValidPixels;
   int requiredPixels;
   int cumulativePixels;
 
-  int nx0, ny0, nx1, ny1;
-  int iw0, ih0, iw1, ih1;
-  float iv, rv;
-  float r00, r01, r10, r11;
-  double sumBlack0, sumBlack1, sumWhite0, sumWhite1;
-  double weightBlack0, weightBlack1, weightWhite0, weightWhite1;
-  int blackCount0, whiteCount0, blackCount1, whiteCount1;
-  int image0Black, image0Gray, image0White;
-  int image1Black, image1Gray, image1White;
-  float diff0to1;
-  int ix1, iy1;
   float maxStep;
   char imgName[PATH_MAX];
-  float blackLevel, whiteLevel;
   double delta;
   int nPixels;
   double sum;
-  float x0, y0;
   Spring *s;
 
   int ni, nix, niy, nlv;
-  float lvl0, lvl1, lvl;
+
+  int mi;
+  MapElement *map;
 
   /* DECLS */
 
@@ -361,17 +351,29 @@ main (int argc, char **argv)
   if (p == 0)
     {
       error = 0;
+      histogramsName[0] = '\0';
       imagesName[0] = '\0';
       imageListName[0] = '\0';
       mapListName[0] = '\0';
       mapsName[0] = '\0';
       masksName[0] = '\0';
       outputName[0] = '\0';
+      blackLevel = 1.0;
+      whiteLevel = 99.0;
 
       for (i = 0; i < argc; ++i)
 	Log("ARGV[%d] = %s\n", i, argv[i]);
       for (i = 1; i < argc; ++i)
-	if (strcmp(argv[i], "-images") == 0)
+	if (strcmp(argv[i], "-histograms") == 0)
+	  {
+	    if (++i == argc)
+	      {
+		error = 1;
+		break;
+	      }
+	    strcpy(histogramsName, argv[i]);
+	  }
+	else if (strcmp(argv[i], "-images") == 0)
 	  {
 	    if (++i == argc)
 	      {
@@ -434,6 +436,24 @@ main (int argc, char **argv)
 		break;
 	      }
 	  }
+	else if (strcmp(argv[i], "-black") == 0)
+	  {
+	    if (++i == argc ||
+		sscanf(argv[i], "%lf", &blackLevel) != 1)
+	      {
+		error = 1;
+		break;
+	      }
+	  }
+	else if (strcmp(argv[i], "-white") == 0)
+	  {
+	    if (++i == argc ||
+		sscanf(argv[i], "%lf", &whiteLevel) != 1)
+	      {
+		error = 1;
+		break;
+	      }
+	  }
 	else
 	  {
 	    fprintf(stderr, "Unrecognized option: %s\n", argv[i]);
@@ -447,6 +467,9 @@ main (int argc, char **argv)
 	  fprintf(stderr, "              -images images_prefix\n");
 	  fprintf(stderr, "              -output output_prefix\n");
 	  fprintf(stderr, "             [-map_list maps_file]\n");
+	  fprintf(stderr, "             [-histograms histograms_prefix]\n");
+	  fprintf(stderr, "             [-black histogram_percentage]\n");
+	  fprintf(stderr, "             [-white histogram_percentage]\n");
 	  exit(1);
 	}
       
@@ -467,11 +490,14 @@ main (int argc, char **argv)
     }
 
   /* broadcast the info */
-  if (MPI_Bcast(imagesName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
+  if (MPI_Bcast(histogramsName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
+      MPI_Bcast(imagesName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
       MPI_Bcast(mapsName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
       MPI_Bcast(masksName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
       MPI_Bcast(outputName, PATH_MAX, MPI_CHAR, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
-      MPI_Bcast(&level, 1, MPI_INT, 0, MPI_COMM_WORLD) != MPI_SUCCESS)
+      MPI_Bcast(&level, 1, MPI_INT, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
+      MPI_Bcast(&blackLevel, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD) != MPI_SUCCESS ||
+      MPI_Bcast(&whiteLevel, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD) != MPI_SUCCESS)
     Error("Broadcast of parameters failed.\n");
   spacing = 1 << level;
 
@@ -537,6 +563,7 @@ main (int argc, char **argv)
       images[i].height = 0;
       images[i].owner = -1;
       images[i].needed = 0;
+      images[i].used = 0;
       images[i].sendTo = NULL;
       images[i].nx = 0;
       images[i].ny = 0;
@@ -548,6 +575,8 @@ main (int argc, char **argv)
       images[i].mask = NULL;
       images[i].histogram = NULL;
       images[i].nodeHistograms = NULL;
+      images[i].maps0 = -1;
+      images[i].maps1 = -1;
       hv = Hash(images[i].name) % nImages ;
       images[i].next = imageHashTable[hv];
       imageHashTable[hv] = i;
@@ -707,7 +736,7 @@ main (int argc, char **argv)
 	if (strcmp(images[j].name, imageName0) == 0)
 	  {
 	    i0 = j;
-	    if (j >= myFirstImage && j <= myLastImage)
+	    if (images[j].owner == p)
 	      found = 1;
 	    break;
 	  }
@@ -722,17 +751,20 @@ main (int argc, char **argv)
 	if (strcmp(images[j].name, imageName1) == 0)
 	  {
 	    i1 = j;
-	    if (j >= myFirstImage && j <= myLastImage)
+	    if (images[j].owner == p)
 	      found = 1;
 	    break;
 	  }
       if (i1 < 0)
 	Error("Could not find destination image for map %s\n", pairName);
+      if (i0 == i1)
+	Error("Map %s has identical source and destination images! (%s, %s)\n",
+	      pairName, imageName0, imageName1); 
 
       if (found)
 	{
-	  images[i0].needed = 1;
-	  images[i1].needed = 1;
+	  ++images[i0].needed;
+	  ++images[i1].needed;
 
 	  /* create map table entry */
 	  if (mapsPos >= mapsSize)
@@ -749,6 +781,10 @@ main (int argc, char **argv)
 	  m->energyFactor = (i0 >= myFirstImage &&
 			     i0 <= myLastImage) ? 1.0 : 0.0;
 	  m->k = weight;
+	  m->nextOfImage0 = images[i0].maps0;
+	  images[i0].maps0 = mapsPos;
+	  m->nextOfImage1 = images[i1].maps1;
+	  images[i1].maps1 = mapsPos;
 
 	  if (images[i0].owner != images[i1].owner)
 	    {
@@ -793,7 +829,7 @@ main (int argc, char **argv)
 	if (nFloats > bufferSize)
 	  bufferSize = nFloats;
       }
-    else if (images[i].needed)
+    else if (images[i].needed != 0)
       {
 	op = images[i].owner;
 	separation = abs(op - p);
@@ -839,13 +875,100 @@ main (int argc, char **argv)
   free(phaseCount);
   free(globalPhaseCount);
 
-  /* read the images and masks; also build the histograms */
-  Log("Reading images and masks\n");
-  Log("spacing = %d\n", spacing);
+  // Pass 1: read in or generate the histograms
+  if (histogramsName[0] != '\0')
+    Log("Reading previously generated histograms\n");
+  else
+    Log("Reading images to generate histograms\n");
   memset(dgh, 0, 256*sizeof(double));
   for (i = 0; i < nImages; ++i)
     {
-      if (images[i].owner != p && !images[i].needed)
+      if (images[i].owner != p)
+	continue;
+      ih = (unsigned int *) malloc(256*sizeof(unsigned int));
+      memset(ih, 0, 256*sizeof(unsigned int));
+      if (histogramsName[0] != '\0')
+	{
+	  sprintf(fn, "%s%s.hst", histogramsName, images[i].name);
+	  Log("Reading histogram %s\n", fn);
+	  f = fopen(fn, "r");
+	  if (f == NULL)
+	    Error("Could not open file %s\n", fn);
+	  while (fgets(line, LINE_LENGTH, f) != NULL)
+	    {
+	      nItems = sscanf(line, "%d%d", &ind, &hv);
+	      if (nItems != 2)
+		Error("Malformed line in %s:\n%s\n", fn, line);
+	      ih[ind] = hv;
+	    }
+	  fclose(f);
+	}
+      else
+	{
+	  sprintf(fn, "%s%s", imagesName, images[i].name);
+	  Log("Reading image %s\n", fn);
+	  if (!ReadImage(fn, &image, &imageWidth, &imageHeight,
+			 -1, -1, -1, -1, msg))
+	    Error("Could not read image file %s:\n%s\n", fn, msg);
+	  ih = (unsigned int *) malloc(256*sizeof(unsigned int));
+	  memset(ih, 0, 256*sizeof(unsigned int));
+	  for (y = 0; y < imageHeight; ++y)
+	    for (x = 0; x < imageWidth; ++x)
+	      {
+		ind = image[y*imageWidth+x];
+		++ih[ind];
+	      }
+	  free(image);
+	}
+      images[i].histogram = ih;
+
+      /* combine with this process's portion of global histogram */
+      for (j = 0; j < 256; ++j)
+	dgh[j] += ih[j];
+    }
+  if (histogramsName[0] != '\0')
+    Log("Finished rading previously generated histograms\n");
+  else
+    Log("All histograms generated.\n");
+  if (MPI_Allreduce(dgh, globalHistogram, 256, MPI_DOUBLE,
+		    MPI_SUM, MPI_COMM_WORLD) != MPI_SUCCESS)
+    Error("Could not sum up global histogram.\n");
+
+  /* choose global black and white levels */
+  globalTotal = 0;
+  for (j = 0; j < 256; ++j)
+    globalTotal += globalHistogram[j];
+  globalBlack = -1;
+  globalWhite = -1;
+  total = 0;
+  for (j = 0; j < 256; ++j)
+    {
+      total += globalHistogram[j];
+      if (globalBlack < 0 && ((double) total) >= 0.01 * blackLevel * ((double) globalTotal))
+	globalBlack = j;
+      if (globalWhite < 0 && ((double) total) >= 0.01 * whiteLevel * ((double) globalTotal))
+	globalWhite = j;
+    }
+
+  /* increase coverage by 20% in each direction to ensure we cover
+     all potentially valid pixels */
+  range = globalWhite - globalBlack;
+  globalBlack = globalBlack - range / 5;
+  if (globalBlack < 0)
+    globalBlack = 0;
+  globalWhite = globalWhite + range / 5;
+  if (globalWhite > 255)
+    globalWhite = 255;
+  Log("global black = %d  global white = %d\n",
+      globalBlack, globalWhite);
+
+  /* read the images and masks; build the node histograms;
+     make inter-image springs if possible */
+  Log("Reading images and masks\n");
+  Log("spacing = %d\n", spacing);
+  for (i = 0; i < nImages; ++i)
+    {
+      if (images[i].owner != p && images[i].needed == 0)
 	continue;
       sprintf(fn, "%s%s", imagesName, images[i].name);
       Log("Reading image %s\n", fn);
@@ -887,548 +1010,36 @@ main (int argc, char **argv)
 	  memset(mask, 0xff, maskHeight * mbpl);
 	}
       images[i].mask = mask;
-      images[i].nx = nx = (imageWidth + spacing-1) / spacing + 1;
-      images[i].ny = ny = (imageHeight + spacing-1) / spacing + 1;
 
-      /* make a histogram for each node -- a (spacing x spacing) pixel region of the image */
-      images[i].nodeHistograms = nodeHistograms =
-	(unsigned short *) malloc((ny - 1) * (nx - 1) * 256 * sizeof(unsigned short));
-      memset(nodeHistograms, 0, (ny - 1) * (nx - 1) * 256 * sizeof(unsigned short));
-      for (iy = 0; iy < ny-1; ++iy)
-	for (ix = 0; ix < nx-1; ++ix)
-	  {
-	    nh = &nodeHistograms[(iy * (nx-1) + ix) * 256];
-	    for (dy = 0; dy < spacing; ++dy)
-	      {
-		y = iy *spacing + dy;
-		if (y >= imageHeight)
-		  break;
-		for (dx = 0; dx < spacing; ++dx)
-		  {
-		    x = ix * spacing + dx;
-		    if (x >= imageWidth)
-		      break;
-		    if (mask[y*mbpl+(x >> 3)] & (0x80 >> (x & 7)))
-		      ++nh[image[y*imageWidth+x]];
-		  }
-	      }
-	  }
-
-      /* combine these into a histogram for the entire image */
-      images[i].histogram = ih =
-	(unsigned int *) malloc(256 * sizeof(unsigned int));
-      memset(ih, 0, 256*sizeof(unsigned int));
-      for (iy = 0; iy < ny-1; ++iy)
-	for (ix = 0; ix < nx-1; ++ix)
-	  {
-	    nh = &nodeHistograms[(iy * (nx-1) + ix) * 256];
-	    for (j = 0; j < 256; ++j)
-	      ih[j] += nh[j];
-	  }
-      
-      /* combine with this process's portion of global histogram */
+      ConstructImageNodes(i);
       if (images[i].owner == p)
-	for (j = 0; j < 256; ++j)
-	  dgh[j] += ih[j];
-    }
-  if (MPI_Allreduce(dgh, globalHistogram, 256, MPI_DOUBLE,
-		    MPI_SUM, MPI_COMM_WORLD) != MPI_SUCCESS)
-    Error("Could not sum up global histogram.\n");
+	ConstructIntraImageSprings(i);
 
-  /* choose global black and white levels */
-  globalTotal = 0;
-  for (j = 0; j < 256; ++j)
-    globalTotal += globalHistogram[j];
-  globalBlack = -1;
-  globalWhite = -1;
-  total = 0;
-  for (j = 0; j < 256; ++j)
-    {
-      total += globalHistogram[j];
-      if (globalBlack < 0 && total >= globalTotal / 100)
-	globalBlack = j;
-      if (globalWhite < 0 && total >= 99 * globalTotal / 100)
-	globalWhite = j;
+      /* initialize the maps that are needed */
+      Log("Initializing maps for image %s\n", images[i].name);
+      for (mi = images[i].maps0; mi >= 0; mi = maps[mi].nextOfImage0)
+	{
+	  if (images[maps[mi].image1].image == 0)
+	    continue;
+	  ConstructInterImageSprings(mi);
+	}
+      for (mi = images[i].maps1; mi >= 0; mi = maps[mi].nextOfImage1)
+	{
+	  if (images[maps[mi].image0].image == 0)
+	    continue;
+	  ConstructInterImageSprings(mi);
+	}
     }
 
-  /* increase coverage by 20% in each direction to ensure we cover
-     all potentially valid pixels */
-  range = globalWhite - globalBlack;
-  globalBlack = globalBlack - range / 5;
-  if (globalBlack < 0)
-    globalBlack = 0;
-  globalWhite = globalWhite + range / 5;
-  if (globalWhite > 255)
-    globalWhite = 255;
-  Log("global black = %d  global white = %d\n",
-      globalBlack, globalWhite);
+  // check that all images have been deallocated
+  for (i = 0; i < nImages; ++i)
+    if (images[i].image != NULL)
+      Error("Image %s was not deallocated!\n", images[i].name);
 
   Log("Before node init barrier\n");
   if (MPI_Barrier(MPI_COMM_WORLD) != MPI_SUCCESS)
     Error("MPI_Barrier after cpi failed.\n");
   Log("After node init barrier\n");
-
-  /* initialize the image nodes */
-  for (i = 0; i < nImages; ++i)
-    {
-      if (images[i].owner != p && !images[i].needed)
-	continue;
-
-      /* choose image-wide black and white levels */
-      /* first find the mode */
-      ih = images[i].histogram;
-
-      imageTotal = 0;
-      for (j = 0; j < 256; ++j)
-	imageTotal += ih[j];
-      imageBlack = -1;
-      imageWhite = -1;
-      total = 0;
-      for (j = 0; j < 256; ++j)
-	{
-	  total += ih[j];
-	  if (imageBlack < 0 && total > imageTotal / 100)
-	    imageBlack = j;
-	  if (imageWhite < 0 && total > 99 * imageTotal / 100)
-	    imageWhite = j;
-	}
-      if (imageBlack < globalBlack)
-	imageBlack = globalBlack;
-      if (imageWhite > globalWhite)
-	imageWhite = globalWhite;
-      images[i].black = imageBlack;
-      images[i].white = imageWhite;
-      imageGray = (imageBlack + imageWhite) / 2;
-      images[i].gray = imageGray;
-      Log("For image %s chose black=%d gray=%d white=%d\n",
-	  images[i].name, images[i].black, images[i].gray, images[i].white);
-
-      nx = images[i].nx;
-      ny = images[i].ny;
-      nodeHistograms = images[i].nodeHistograms;
-      images[i].nodes = nodes = (Node*) malloc(2 * ny * nx * sizeof(Node));
-      if (images[i].owner != p)
-	{
-	  memset(nodes, 0, 2 * nx * ny * sizeof(Node));
-	  continue;
-	}
-
-      Log("Constructing intra-image springs for %s\n", images[i].name);
-      nLevelSpringsBlack = 0;
-      nLevelSpringsWhite = 0;
-      nIntraSpringsBlack = 0;
-      nIntraSpringsWhite = 0;
-      for (iy = 0; iy < ny; ++iy)
-	for (ix = 0; ix < nx; ++ix)
-	  {
-	    /* set the initial node values to the image-wide values */
-	    nodes[iy * nx + ix].x = imageBlack;
-	    nodes[ny*nx + (iy * nx + ix)].x = imageWhite;
-
-	    if (nSprings+2 > springsSize)
-	      {
-		springsSize = (springsSize > 0) ? (springsSize + 1024*1024) : 1024*1024;
-		springs = (Spring*) realloc(springs, springsSize * sizeof(Spring));
-	      }
-	    /* spring for black level */
-	    springs[nSprings].node0 = &nodes[iy * nx + ix];
-	    springs[nSprings].node1 = NULL;
-	    springs[nSprings].k = levelK;
-	    springs[nSprings].offset = imageBlack;
-	    ++nLevelSpringsBlack;
-	    ++nSprings;
-	    
-	    /* spring for white level */
-	    springs[nSprings].node0 = &nodes[ny*nx + (iy * nx + ix)];
-	    springs[nSprings].node1 = NULL;
-	    springs[nSprings].k = levelK;
-	    springs[nSprings].offset = imageWhite;
-	    ++nLevelSpringsWhite;
-	    ++nSprings;
-
-	    /* make a spring to adjacent nodes */
-	    for (dy = -1; dy <= 0; ++dy)
-	      for (dx = -1; dx <= 1; ++dx)
-		{
-		  if (dx == 0 && dy == 0)
-		    break;
-		  x = ix + dx;
-		  y = iy + dy;
-		  if (x < 0 || x >= nx || y < 0)
-		    continue;
-		
-		  if (nSprings+2 > springsSize)
-		    {
-		      springsSize = (springsSize > 0) ? (springsSize + 1024*1024) : 1024*1024;
-		      springs = (Spring*) realloc(springs, springsSize * sizeof(Spring));
-		    }
-		  /* spring for black level */
-		  springs[nSprings].node0 = &nodes[y * nx + x];
-		  springs[nSprings].node1 = &nodes[iy * nx + ix];
-		  springs[nSprings].k = intraimageK;
-		  springs[nSprings].offset = 0.0;
-		  ++nIntraSpringsBlack;
-		  ++nSprings;
-		
-		  /* spring for white level */
-		  springs[nSprings].node0 = &nodes[ny*nx + (y * nx + x)];
-		  springs[nSprings].node1 = &nodes[ny*nx + (iy * nx + ix)];
-		  springs[nSprings].k = intraimageK;
-		  springs[nSprings].offset = 0.0;
-		  ++nIntraSpringsWhite;
-		  ++nSprings;
-		}
-	  }
-      Log("nLevelSpringsBlack = %d nLevelSpringsWhite = %d\n",
-	  nLevelSpringsBlack, nLevelSpringsWhite);
-      Log("nIntraSpringsBlack = %d nIntraSpringsWhite = %d\n",
-	  nIntraSpringsBlack, nIntraSpringsWhite);
-    }
-
-  Log("Initializing maps\n");
-  /* initialize the maps that are needed */
-  for (i = 0; i < nMaps; ++i)
-    {
-      sprintf(fn, "%s%s.map", mapsName, maps[i].name);
-      if (!ReadMap(fn, &map, &mLevel,
-		   &mw, &mh, &mxMin, &myMin,
-		   imName0, imName1,
-		   msg))
-	Error("Could not read map %s:\n  error: %s\n",
-	      fn, msg);
-      mFactor = 1 << mLevel;
-      m = &maps[i];
-      iMap = InvertMap(map, mw, mh);
-      nInterSpringsBlack = 0;
-      nInterSpringsWhite = 0;
-      Log("Constructing inter-image springs for map %s\n", maps[i].name);
-      
-      //		  ++steps[1];
-      i0 = maps[i].image0;
-      nx0 = images[i0].nx;
-      ny0 = images[i0].ny;
-      iw0 = images[i0].width;
-      ih0 = images[i0].height;
-      image0 = images[i0].image;
-      mask0 = images[i0].mask;
-      mbpl0 = (iw0 + 7) >> 3;
-      nodes0 = images[i0].nodes;
-      image0Black = images[i0].black;
-      image0Gray = images[i0].gray;
-      image0White = images[i0].white;
-
-      i1 = maps[i].image1;
-      nx1 = images[i1].nx;
-      ny1 = images[i1].ny;
-      iw1 = images[i1].width;
-      ih1 = images[i1].height;
-      image1 = images[i1].image;
-      mask1 = images[i1].mask;
-      mbpl1 = (iw1 + 7) >> 3;
-      nodes1 = images[i1].nodes;
-      image1Black = images[i1].black;
-      image1Gray = images[i1].gray;
-      image1White = images[i1].white;
-
-      /* go through all nodes */
-      for (iy = 0; iy < ny0; ++iy)
-	for (ix = 0; ix < nx0; ++ix)
-	  {
-	    //			++steps[2];
-	    /* find the corresponding point in the other image */
-	    x0 = ix * spacing;
-	    y0 = iy * spacing;
-	    xv = x0 / mFactor;
-	    yv = y0 / mFactor;
-	    ixv = (int) floor(xv);
-	    iyv = (int) floor(yv);
-	    rrx = xv - ixv;
-	    rry = yv - iyv;
-	    ixv -= mxMin;
-	    iyv -= myMin;
-	    if (ixv < 0 || ixv >= mw-1 ||
-		iyv < 0 || iyv >= mh-1)
-	      continue;
-	    //			++steps[3];
-	    rx00 = map[iyv*mw+ixv].x;
-	    ry00 = map[iyv*mw+ixv].y;
-	    rx01 = map[(iyv+1)*mw+ixv].x;
-	    ry01 = map[(iyv+1)*mw+ixv].y;
-	    rx10 = map[iyv*mw+ixv+1].x;
-	    ry10 = map[iyv*mw+ixv+1].y;
-	    rx11 = map[(iyv+1)*mw+ixv+1].x;
-	    ry11 = map[(iyv+1)*mw+ixv+1].y;
-	    rx = rx00 * (rrx - 1.0) * (rry - 1.0)
-	      - rx10 * rrx * (rry - 1.0) 
-	      - rx01 * (rrx - 1.0) * rry
-	      + rx11 * rrx * rry;
-	    ry = ry00 * (rrx - 1.0) * (rry - 1.0)
-	      - ry10 * rrx * (rry - 1.0) 
-	      - ry01 * (rrx - 1.0) * rry
-	      + ry11 * rrx * rry;
-	    rx = rx * mFactor / spacing;
-	    ry = ry * mFactor / spacing;
-
-	    /* pick the closest grid point */
-	    ix1 = floor(rx + 0.5);
-	    iy1 = floor(ry + 0.5);
-	    if (ix1 < 0 || ix1 >= nx1 ||
-		iy1 < 0 || iy1 >= ny1)
-	      continue;
-	    //			++steps[4];
-
-	    /* go through all pixels in a (spacing x spacing) square centered on
-	       (ix,iy) */
-	    blackCount0 = 0;
-	    whiteCount0 = 0;
-	    sumBlack0 = 0.0;
-	    sumWhite0 = 0.0;
-	    weightBlack0 = 0.0;
-	    weightWhite0 = 0.0;
-	    for (dy = -spacing/2; dy < spacing/2; ++dy)
-	      for (dx = -spacing/2; dx < spacing/2; ++dx)
-		{
-		  //			      ++steps[5];
-		  x = ix * spacing + dx;
-		  y = iy * spacing + dy;
-		  if (x < 0 || x >= iw0 ||
-		      y < 0 || y >= ih0)
-		    continue;
-		  //			      ++steps[6];
-		  /* if pixel is not a valid pixel, ignore */
-		  if ((mask0[y*mbpl0+(x>>3)] & (0x80 >> (x & 7))) == 0)
-		    continue;
-		  //			      ++steps[7];
-		  if (image0[y*iw0 + x] < imageBlack ||
-		      image0[y*iw0 + x] > imageWhite)
-		    continue;
-		  //			      ++steps[8];
-
-		  /* find corresponding pixel value in the other image,
-		     and compute difference */
-		  xv = ((float) x) / mFactor;
-		  yv = ((float) y) / mFactor;
-		  ixv = (int) floor(xv);
-		  iyv = (int) floor(yv);
-		  rrx = xv - ixv;
-		  rry = yv - iyv;
-		  ixv -= mxMin;
-		  iyv -= myMin;
-		  if (ixv < 0 || ixv >= mw-1 ||
-		      iyv < 0 || iyv >= mh-1)
-		    continue;
-		  //			      ++steps[9];
-		  rx00 = map[iyv*mw+ixv].x;
-		  ry00 = map[iyv*mw+ixv].y;
-		  rx01 = map[(iyv+1)*mw+ixv].x;
-		  ry01 = map[(iyv+1)*mw+ixv].y;
-		  rx10 = map[iyv*mw+ixv+1].x;
-		  ry10 = map[iyv*mw+ixv+1].y;
-		  rx11 = map[(iyv+1)*mw+ixv+1].x;
-		  ry11 = map[(iyv+1)*mw+ixv+1].y;
-		  rx = rx00 * (rrx - 1.0) * (rry - 1.0)
-		    - rx10 * rrx * (rry - 1.0) 
-		    - rx01 * (rrx - 1.0) * rry
-		    + rx11 * rrx * rry;
-		  ry = ry00 * (rrx - 1.0) * (rry - 1.0)
-		    - ry10 * rrx * (rry - 1.0) 
-		    - ry01 * (rrx - 1.0) * rry
-		    + ry11 * rrx * rry;
- 		  rx = rx * mFactor;
-		  ry = ry * mFactor;
-
-		  /* interpolate to find pixel value */
-		  irx = (int) floor(rx);
-		  iry = (int) floor(ry);
-		  if (irx < 0 || irx >= iw1-1 ||
-		      iry < 0 || iry >= ih1-1)
-		    continue;
-		  //			      ++steps[10];
-		  if ((mask1[iry*mbpl1 + (irx >> 3)] & (0x80 >> (irx & 7))) == 0 ||
-		      (mask1[(iry+1)*mbpl1 + (irx >> 3)] & (0x80 >> (irx & 7))) == 0 ||
-		      (mask1[iry*mbpl1 + ((irx+1) >> 3)] & (0x80 >> ((irx+1) & 7))) == 0 ||
-		      (mask1[(iry+1)*mbpl1 + ((irx+1) >> 3)] & (0x80 >> ((irx+1) & 7))) == 0)
-		    continue;
-		  //			      ++steps[11];
-		  r00 = image1[iry * iw1 + irx];
-		  r01 = image1[(iry+1) * iw1 + irx];
-		  r10 = image1[iry * iw1 + irx+1];
-		  r11 = image1[(iry+1) * iw1 + irx+1];
-		  if (r00 < image1Black || r00 > image1White ||
-		      r01 < image1Black || r01 > image1White ||
-		      r10 < image1Black || r10 > image1White ||
-		      r11 < image1Black || r11 > image1White)
-		    continue;
-		  //			      ++steps[12];
-		  rv = r00 * (rrx - 1.0) * (rry - 1.0)
-		    - r10 * rrx * (rry - 1.0) 
-		    - r01 * (rrx - 1.0) * rry
-		    + r11 * rrx * rry;
-
-		  iv = image0[y*iw0 + x];
-
-		  lvl0 = (iv - image0Black) / (image0White - image0Black);
-		  if (lvl0 < 0.0)
-		    lvl0 = 0.0;
-		  if (lvl0 > 1.0)
-		    lvl0 = 1.0;
-		  lvl1 = (rv - image1Black) / (image1White - image1Black);
-		  if (lvl1 < 0.0)
-		    lvl1 = 0.0;
-		  if (lvl1 > 1.0)
-		    lvl1 = 1.0;
-		  lvl = 0.5 * (lvl0 + lvl1);
-
-		  weight = 1.0 - lvl;
-		  weightBlack0 += weight;
-		  sumBlack0 += weight * (rv - iv);
-		  ++blackCount0;
-
-		  weight = lvl;
-		  weightWhite0 += weight;
-		  sumWhite0 += weight * (rv - iv);
-		  ++whiteCount0;
-		}
-
-	    /* now go through all pixels in a (spacing x spacing) square centered
-	       on the corresponding node */
-	    //			++steps[13];
-	    blackCount1 = 0;
-	    whiteCount1 = 0;
-	    sumBlack1 = 0.0;
-	    sumWhite1 = 0.0;
-	    weightBlack1 = 0.0;
-	    weightWhite1 = 0.0;
-	    for (dy = -spacing/2; dy < spacing/2; ++dy)
-	      for (dx = -spacing/2; dx < spacing/2; ++dx)
-		{
-		  //			      ++steps[14];
-		  x = ix1 * spacing + dx;
-		  y = iy1 * spacing + dy;
-		  if (x < 0 || x >= iw1 ||
-		      y < 0 || y >= ih1)
-		    continue;
-		  //			      ++steps[15];
-		  /* if pixel is not a valid pixel, ignore */
-		  if ((mask1[y*mbpl1+(x>>3)] & (0x80 >> (x & 7))) == 0)
-		    continue;
-		  //			      ++steps[16];
-
-		  /* Find corresponding pixel value in the first image,
-		     and compute difference */
-		  xv = ((float) x) / mFactor;
-		  yv = ((float) y) / mFactor;
-		  if (!Invert(iMap, &rx, &ry, xv, yv))
-		    continue;
-		  //			      ++steps[17];
-		  rx = (rx + mxMin) * mFactor;
-		  ry = (ry + myMin) * mFactor;
-
-		  /* interpolate to find pixel value */
-		  irx = (int) floor(rx);
-		  iry = (int) floor(ry);
-		  if (irx < 0 || irx >= iw0-1 ||
-		      iry < 0 || iry >= ih0-1)
-		    continue;
-		  //			      ++steps[18];
-		  if ((mask0[iry*mbpl0 + (irx >> 3)] & (0x80 >> (irx & 7))) == 0 ||
-		      (mask0[(iry+1)*mbpl0 + (irx >> 3)] & (0x80 >> (irx & 7))) == 0 ||
-		      (mask0[iry*mbpl0 + ((irx+1) >> 3)] & (0x80 >> ((irx+1) & 7))) == 0 ||
-		      (mask0[(iry+1)*mbpl0 + ((irx+1) >> 3)] & (0x80 >> ((irx+1) & 7))) == 0)
-		    continue;
-		  //			      ++steps[19];
-		  r00 = image0[iry * iw0 + irx];
-		  r01 = image0[(iry+1) * iw0 + irx];
-		  r10 = image0[iry * iw0 + irx+1];
-		  r11 = image0[(iry+1) * iw0 + irx+1];
-		  rv = r00 * (rrx - 1.0) * (rry - 1.0)
-		    - r10 * rrx * (rry - 1.0) 
-		    - r01 * (rrx - 1.0) * rry
-		    + r11 * rrx * rry;
-		  
-		  iv = image1[y*iw1 + x];
-
-		  lvl0 = (rv - image0Black) / (image0White - image0Black);
-		  if (lvl0 < 0.0)
-		    lvl0 = 0.0;
-		  if (lvl0 > 1.0)
-		    lvl0 = 1.0;
-		  lvl1 = (iv - image1Black) / (image1White - image1Black);
-		  if (lvl1 < 0.0)
-		    lvl1 = 0.0;
-		  if (lvl1 > 1.0)
-		    lvl1 = 1.0;
-		  lvl = 0.5 * (lvl0 + lvl1);
-
-		  weight = 1.0 - lvl;
-		  weightBlack1 += weight;
-		  sumBlack1 += weight * (iv - rv);
-		  ++blackCount1;
-
-		  weight = lvl;
-		  weightWhite1 += weight;
-		  sumWhite1 += weight * (iv - rv);
-		  ++whiteCount1;
-		}		    
-
-	    if (weightBlack0 > 0.0 || weightBlack1 > 0.0)
-	      {
-		diff0to1 = (sumBlack0 + sumBlack1) /
-		  (weightBlack0 + weightBlack1);
-
-		/* construct a spring representing the average difference of black values */
-		if (nSprings+1 > springsSize)
-		  {
-		    springsSize = (springsSize > 0) ? (springsSize + 1024*1024) : 1024*1024;
-		    springs = (Spring*) realloc(springs, springsSize * sizeof(Spring));
-		  }
-#if 0
-		if (i0 == 2 && ix == 41 && iy == 34)
-		  Log("Creating blk SPRING %d to %d %d %d   %f\n", nSprings, i1, ix1, iy1, diff0to1);
-		if (i1 == 2 && ix1 == 41 && iy1 == 34)
-		  Log("Creating blk SPRING %d from %d %d %d  %f\n", nSprings, i0, ix, iy, diff0to1);
-#endif
-		springs[nSprings].node0 = &nodes0[iy * nx0 + ix];
-		springs[nSprings].node1 = &nodes1[iy1 * nx1 + ix1];
-		springs[nSprings].k = interimageK * (weightBlack0 + weightBlack1) / (blackCount0 + blackCount1);
-		springs[nSprings].offset = diff0to1;
-		++nInterSpringsBlack;
-		++nSprings;
-		//			    ++steps[21];
-	      }
-
-	    if (weightWhite0 > 0.0 || weightWhite1 > 0.0)
-	      {
-		diff0to1 = (sumWhite0 + sumWhite1) /
-		  (weightWhite0 + weightWhite1);
-
-		/* construct a spring representing the average difference of black values */
-		if (nSprings+1 > springsSize)
-		  {
-		    springsSize = (springsSize > 0) ? (springsSize + 1024*1024) : 1024*1024;
-		    springs = (Spring*) realloc(springs, springsSize * sizeof(Spring));
-		  }
-#if 0
-		if (i0 == 2 && ix == 41 && iy == 34)
-		  Log("Creating wht SPRING %d to %d %d %d  %f\n", nSprings, i1, ix1, iy1, diff0to1);
-		if (i1 == 2 && ix1 == 41 && iy1 == 34)
-		  Log("Creating wht SPRING %d from %d %d %d  %f\n", nSprings, i0, ix, iy, diff0to1);
-#endif
-		springs[nSprings].node0 = &nodes0[ny0*nx0 + (iy * nx0 + ix)];
-		springs[nSprings].node1 = &nodes1[ny1*nx1 + (iy1 * nx1 + ix1)];
-		springs[nSprings].k = interimageK * (weightWhite0 + weightWhite1) / (whiteCount0 + whiteCount1);
-		springs[nSprings].offset = diff0to1;
-		++nInterSpringsWhite;
-		++nSprings;
-		//			    ++steps[21];
-	      }
-	  }
-      Log("nInterSpringsBlack = %d nInterSpringsWhite = %d\n",
-	  nInterSpringsBlack, nInterSpringsWhite);
-
-      FreeInverseMap(iMap);
-      free(map);
-    }
 
   /* set up communications with other nodes */
   PlanCommunications();
@@ -1724,6 +1335,588 @@ main (int argc, char **argv)
   MPI_Finalize();
   fclose(logFile);
   return(0);
+}
+
+void
+ConstructImageNodes (int i)
+{
+  int nx, ny;
+
+  /* make the image nodes */
+  nx = (images[i].width + spacing-1) / spacing + 1;
+  ny = (images[i].height + spacing-1) / spacing + 1;
+  images[i].nx = nx;
+  images[i].ny = ny;
+  images[i].nodes = (Node*) malloc(2 * ny * nx * sizeof(Node));
+  /* clear nodes for those images we don't own;
+     nodes for images we own will be set later */
+  if (images[i].owner != p)
+    memset(images[i].nodes, 0, 2 * nx * ny * sizeof(Node));
+}
+
+void
+ConstructIntraImageSprings (int i)
+{
+  unsigned int *hist;
+  int j;
+  int imageBlack, imageGray, imageWhite;
+  int nx, ny;
+  int ix, iy;
+  long long imageTotal;
+  long long total;
+  int dx, dy;
+  int x, y;
+  unsigned short *nodeHistograms;
+  unsigned short *nh;
+  int ih, iw;
+  unsigned char *image;
+  unsigned char *mask;
+  size_t mbpl;
+  int nLevelSpringsBlack, nLevelSpringsWhite;
+  int nIntraSpringsBlack, nIntraSpringsWhite;
+  char fn[PATH_MAX];
+  Node *nodes;
+
+  ih = images[i].height;
+  iw = images[i].width;
+  image = images[i].image;
+  mask = images[i].mask;
+  mbpl = (iw + 7) >> 3;
+  hist = images[i].histogram;
+  nodes = images[i].nodes;
+
+  /* choose image-wide black and white levels */
+  /* first find the mode */
+  imageTotal = 0;
+  for (j = 0; j < 256; ++j)
+    imageTotal += hist[j];
+  imageBlack = -1;
+  imageWhite = -1;
+  total = 0;
+  for (j = 0; j < 256; ++j)
+    {
+      total += hist[j];
+      if (imageBlack < 0 && ((double) total) >= 0.01 * blackLevel * ((double) imageTotal))
+	imageBlack = j;
+      if (imageWhite < 0 && ((double) total) >= 0.01 * whiteLevel * ((double) imageTotal))
+	imageWhite = j;
+    }
+  if (imageBlack < globalBlack)
+    imageBlack = globalBlack;
+  if (imageWhite > globalWhite)
+    imageWhite = globalWhite;
+  images[i].black = imageBlack;
+  images[i].white = imageWhite;
+  imageGray = (imageBlack + imageWhite) / 2;
+  images[i].gray = imageGray;
+  Log("For image %s chose black=%d gray=%d white=%d\n",
+      images[i].name, images[i].black, images[i].gray, images[i].white);
+
+  /* make a histogram for each node -- a (spacing x spacing) pixel region of the image */
+  nx = images[i].nx;
+  ny = images[i].ny;
+  nodeHistograms = (unsigned short *) malloc((ny - 1) * (nx - 1) * 256 * sizeof(unsigned short));
+  memset(nodeHistograms, 0, (ny - 1) * (nx - 1) * 256 * sizeof(unsigned short));
+  for (iy = 0; iy < ny-1; ++iy)
+    for (ix = 0; ix < nx-1; ++ix)
+      {
+	nh = &nodeHistograms[(iy * (nx-1) + ix) * 256];
+	for (dy = 0; dy < spacing; ++dy)
+	  {
+	    y = iy *spacing + dy;
+	    if (y >= ih)
+	      break;
+	    for (dx = 0; dx < spacing; ++dx)
+	      {
+		x = ix * spacing + dx;
+		if (x >= iw)
+		  break;
+		if (mask[y*mbpl+(x >> 3)] & (0x80 >> (x & 7)))
+		  ++nh[image[y*iw+x]];
+	      }
+	  }
+      }
+  images[i].nodeHistograms = nodeHistograms;
+
+  Log("Constructing intra-image springs for %s\n", images[i].name);
+  nLevelSpringsBlack = 0;
+  nLevelSpringsWhite = 0;
+  nIntraSpringsBlack = 0;
+  nIntraSpringsWhite = 0;
+  for (iy = 0; iy < ny; ++iy)
+    for (ix = 0; ix < nx; ++ix)
+      {
+	/* set the initial node values to the image-wide values */
+	nodes[iy * nx + ix].x = imageBlack;
+	nodes[ny*nx + (iy * nx + ix)].x = imageWhite;
+	
+	if (nSprings+2 > springsSize)
+	  {
+	    springsSize = (springsSize > 0) ? (springsSize + 1024*1024) : 1024*1024;
+	    springs = (Spring*) realloc(springs, springsSize * sizeof(Spring));
+	  }
+	/* spring for black level */
+	springs[nSprings].node0 = &nodes[iy * nx + ix];
+	springs[nSprings].node1 = NULL;
+	springs[nSprings].k = levelK;
+	springs[nSprings].offset = imageBlack;
+	++nLevelSpringsBlack;
+	++nSprings;
+	    
+	/* spring for white level */
+	springs[nSprings].node0 = &nodes[ny*nx + (iy * nx + ix)];
+	springs[nSprings].node1 = NULL;
+	springs[nSprings].k = levelK;
+	springs[nSprings].offset = imageWhite;
+	++nLevelSpringsWhite;
+	++nSprings;
+
+	/* make a spring to adjacent nodes */
+	for (dy = -1; dy <= 0; ++dy)
+	  for (dx = -1; dx <= 1; ++dx)
+	    {
+	      if (dx == 0 && dy == 0)
+		break;
+	      x = ix + dx;
+	      y = iy + dy;
+	      if (x < 0 || x >= nx || y < 0)
+		continue;
+		
+	      if (nSprings+2 > springsSize)
+		{
+		  springsSize = (springsSize > 0) ? (springsSize + 1024*1024) : 1024*1024;
+		  springs = (Spring*) realloc(springs, springsSize * sizeof(Spring));
+		}
+	      /* spring for black level */
+	      springs[nSprings].node0 = &nodes[y * nx + x];
+	      springs[nSprings].node1 = &nodes[iy * nx + ix];
+	      springs[nSprings].k = intraimageK;
+	      springs[nSprings].offset = 0.0;
+	      ++nIntraSpringsBlack;
+	      ++nSprings;
+		
+	      /* spring for white level */
+	      springs[nSprings].node0 = &nodes[ny*nx + (y * nx + x)];
+	      springs[nSprings].node1 = &nodes[ny*nx + (iy * nx + ix)];
+	      springs[nSprings].k = intraimageK;
+	      springs[nSprings].offset = 0.0;
+	      ++nIntraSpringsWhite;
+	      ++nSprings;
+	    }
+      }
+  Log("nLevelSpringsBlack = %d nLevelSpringsWhite = %d\n",
+      nLevelSpringsBlack, nLevelSpringsWhite);
+  Log("nIntraSpringsBlack = %d nIntraSpringsWhite = %d\n",
+      nIntraSpringsBlack, nIntraSpringsWhite);
+}
+
+void
+ConstructInterImageSprings (int mi)
+{
+  char fn[PATH_MAX];
+  int mLevel;
+  int mw, mh;
+  int mxMin, myMin;
+  char imName0[PATH_MAX], imName1[PATH_MAX];
+  MapElement *map;
+  InverseMap *iMap;
+  int mFactor;
+  char msg[PATH_MAX+256];
+  InterImageMap *m;
+  int nInterSpringsBlack, nInterSpringsWhite;
+  float r00, r01, r10, r11;
+  int irx, iry;
+  int nx0, ny0, nx1, ny1;
+  int iw0, ih0, iw1, ih1;
+  float iv, rv;
+  double sumBlack0, sumBlack1, sumWhite0, sumWhite1;
+  double weightBlack0, weightBlack1, weightWhite0, weightWhite1;
+  int blackCount0, whiteCount0, blackCount1, whiteCount1;
+  int image0Black, image0Gray, image0White;
+  int image1Black, image1Gray, image1White;
+  float diff0to1;
+  int ix1, iy1;
+  unsigned char *image0, *image1;
+  unsigned char *mask0, *mask1;
+  size_t mbpl0, mbpl1;
+  int i0, i1;
+  float lvl0, lvl1, lvl;
+  double weight;
+  int ix, iy;
+  float rrx, rry;
+  float xv, yv;
+  float rx00, rx01, rx10, rx11;
+  float ry00, ry01, ry10, ry11;
+  float rc00, rc01, rc10, rc11;
+  float rx, ry, rc;
+  int dx, dy;
+  int ixv, iyv;
+  float x0, y0;
+  Node *nodes0, *nodes1;
+  int x, y;
+
+  sprintf(fn, "%s%s.map", mapsName, maps[mi].name);
+  if (!ReadMap(fn, &map, &mLevel,
+	       &mw, &mh, &mxMin, &myMin,
+	       imName0, imName1,
+	       msg))
+    Error("Could not read map %s:\n  error: %s\n",
+	  fn, msg);
+  mFactor = 1 << mLevel;
+  m = &maps[mi];
+  iMap = InvertMap(map, mw, mh);
+  nInterSpringsBlack = 0;
+  nInterSpringsWhite = 0;
+  Log("Constructing inter-image springs for map %s\n", maps[mi].name);
+      
+  //		  ++steps[1];
+  i0 = m->image0;
+  nx0 = images[i0].nx;
+  ny0 = images[i0].ny;
+  iw0 = images[i0].width;
+  ih0 = images[i0].height;
+  image0 = images[i0].image;
+  mask0 = images[i0].mask;
+  mbpl0 = (iw0 + 7) >> 3;
+  nodes0 = images[i0].nodes;
+  image0Black = images[i0].black;
+  image0Gray = images[i0].gray;
+  image0White = images[i0].white;
+
+  i1 = m->image1;
+  nx1 = images[i1].nx;
+  ny1 = images[i1].ny;
+  iw1 = images[i1].width;
+  ih1 = images[i1].height;
+  image1 = images[i1].image;
+  mask1 = images[i1].mask;
+  mbpl1 = (iw1 + 7) >> 3;
+  nodes1 = images[i1].nodes;
+  image1Black = images[i1].black;
+  image1Gray = images[i1].gray;
+  image1White = images[i1].white;
+
+  /* go through all nodes */
+  for (iy = 0; iy < ny0; ++iy)
+    for (ix = 0; ix < nx0; ++ix)
+      {
+	//			++steps[2];
+	/* find the corresponding point in the other image */
+	x0 = ix * spacing;
+	y0 = iy * spacing;
+	xv = x0 / mFactor;
+	yv = y0 / mFactor;
+	ixv = (int) floor(xv);
+	iyv = (int) floor(yv);
+	rrx = xv - ixv;
+	rry = yv - iyv;
+	ixv -= mxMin;
+	iyv -= myMin;
+	if (ixv < 0 || ixv >= mw-1 ||
+	    iyv < 0 || iyv >= mh-1)
+	  continue;
+	//			++steps[3];
+	rx00 = map[iyv*mw+ixv].x;
+	ry00 = map[iyv*mw+ixv].y;
+	rx01 = map[(iyv+1)*mw+ixv].x;
+	ry01 = map[(iyv+1)*mw+ixv].y;
+	rx10 = map[iyv*mw+ixv+1].x;
+	ry10 = map[iyv*mw+ixv+1].y;
+	rx11 = map[(iyv+1)*mw+ixv+1].x;
+	ry11 = map[(iyv+1)*mw+ixv+1].y;
+	rx = rx00 * (rrx - 1.0) * (rry - 1.0)
+	  - rx10 * rrx * (rry - 1.0) 
+	  - rx01 * (rrx - 1.0) * rry
+	  + rx11 * rrx * rry;
+	ry = ry00 * (rrx - 1.0) * (rry - 1.0)
+	  - ry10 * rrx * (rry - 1.0) 
+	  - ry01 * (rrx - 1.0) * rry
+	  + ry11 * rrx * rry;
+	rx = rx * mFactor / spacing;
+	ry = ry * mFactor / spacing;
+
+	/* pick the closest grid point */
+	ix1 = floor(rx + 0.5);
+	iy1 = floor(ry + 0.5);
+	if (ix1 < 0 || ix1 >= nx1 ||
+	    iy1 < 0 || iy1 >= ny1)
+	  continue;
+	//			++steps[4];
+
+	/* go through all pixels in a (spacing x spacing) square centered on
+	   (ix,iy) */
+	blackCount0 = 0;
+	whiteCount0 = 0;
+	sumBlack0 = 0.0;
+	sumWhite0 = 0.0;
+	weightBlack0 = 0.0;
+	weightWhite0 = 0.0;
+	for (dy = -spacing/2; dy < spacing/2; ++dy)
+	  for (dx = -spacing/2; dx < spacing/2; ++dx)
+	    {
+	      //			      ++steps[5];
+	      x = ix * spacing + dx;
+	      y = iy * spacing + dy;
+	      if (x < 0 || x >= iw0 ||
+		  y < 0 || y >= ih0)
+		continue;
+	      //			      ++steps[6];
+	      /* if pixel is not a valid pixel, ignore */
+	      if ((mask0[y*mbpl0+(x>>3)] & (0x80 >> (x & 7))) == 0)
+		continue;
+	      //			      ++steps[7];
+	      if (image0[y*iw0 + x] < image0Black ||
+		  image0[y*iw0 + x] > image0White)
+		continue;
+	      //			      ++steps[8];
+
+	      /* find corresponding pixel value in the other image,
+		 and compute difference */
+	      xv = ((float) x) / mFactor;
+	      yv = ((float) y) / mFactor;
+	      ixv = (int) floor(xv);
+	      iyv = (int) floor(yv);
+	      rrx = xv - ixv;
+	      rry = yv - iyv;
+	      ixv -= mxMin;
+	      iyv -= myMin;
+	      if (ixv < 0 || ixv >= mw-1 ||
+		  iyv < 0 || iyv >= mh-1)
+		continue;
+	      //			      ++steps[9];
+	      rx00 = map[iyv*mw+ixv].x;
+	      ry00 = map[iyv*mw+ixv].y;
+	      rx01 = map[(iyv+1)*mw+ixv].x;
+	      ry01 = map[(iyv+1)*mw+ixv].y;
+	      rx10 = map[iyv*mw+ixv+1].x;
+	      ry10 = map[iyv*mw+ixv+1].y;
+	      rx11 = map[(iyv+1)*mw+ixv+1].x;
+	      ry11 = map[(iyv+1)*mw+ixv+1].y;
+	      rx = rx00 * (rrx - 1.0) * (rry - 1.0)
+		- rx10 * rrx * (rry - 1.0) 
+		- rx01 * (rrx - 1.0) * rry
+		+ rx11 * rrx * rry;
+	      ry = ry00 * (rrx - 1.0) * (rry - 1.0)
+		- ry10 * rrx * (rry - 1.0) 
+		- ry01 * (rrx - 1.0) * rry
+		+ ry11 * rrx * rry;
+	      rx = rx * mFactor;
+	      ry = ry * mFactor;
+
+	      /* interpolate to find pixel value */
+	      irx = (int) floor(rx);
+	      iry = (int) floor(ry);
+	      if (irx < 0 || irx >= iw1-1 ||
+		  iry < 0 || iry >= ih1-1)
+		continue;
+	      //			      ++steps[10];
+	      if ((mask1[iry*mbpl1 + (irx >> 3)] & (0x80 >> (irx & 7))) == 0 ||
+		  (mask1[(iry+1)*mbpl1 + (irx >> 3)] & (0x80 >> (irx & 7))) == 0 ||
+		  (mask1[iry*mbpl1 + ((irx+1) >> 3)] & (0x80 >> ((irx+1) & 7))) == 0 ||
+		  (mask1[(iry+1)*mbpl1 + ((irx+1) >> 3)] & (0x80 >> ((irx+1) & 7))) == 0)
+		continue;
+	      //			      ++steps[11];
+	      r00 = image1[iry * iw1 + irx];
+	      r01 = image1[(iry+1) * iw1 + irx];
+	      r10 = image1[iry * iw1 + irx+1];
+	      r11 = image1[(iry+1) * iw1 + irx+1];
+	      if (r00 < image1Black || r00 > image1White ||
+		  r01 < image1Black || r01 > image1White ||
+		  r10 < image1Black || r10 > image1White ||
+		  r11 < image1Black || r11 > image1White)
+		continue;
+	      //			      ++steps[12];
+	      rv = r00 * (rrx - 1.0) * (rry - 1.0)
+		- r10 * rrx * (rry - 1.0) 
+		- r01 * (rrx - 1.0) * rry
+		+ r11 * rrx * rry;
+
+	      iv = image0[y*iw0 + x];
+
+	      lvl0 = (iv - image0Black) / (image0White - image0Black);
+	      if (lvl0 < 0.0)
+		lvl0 = 0.0;
+	      if (lvl0 > 1.0)
+		lvl0 = 1.0;
+	      lvl1 = (rv - image1Black) / (image1White - image1Black);
+	      if (lvl1 < 0.0)
+		lvl1 = 0.0;
+	      if (lvl1 > 1.0)
+		lvl1 = 1.0;
+	      lvl = 0.5 * (lvl0 + lvl1);
+
+	      weight = 1.0 - lvl;
+	      weightBlack0 += weight;
+	      sumBlack0 += weight * (rv - iv);
+	      ++blackCount0;
+
+	      weight = lvl;
+	      weightWhite0 += weight;
+	      sumWhite0 += weight * (rv - iv);
+	      ++whiteCount0;
+	    }
+
+	/* now go through all pixels in a (spacing x spacing) square centered
+	   on the corresponding node */
+	//			++steps[13];
+	blackCount1 = 0;
+	whiteCount1 = 0;
+	sumBlack1 = 0.0;
+	sumWhite1 = 0.0;
+	weightBlack1 = 0.0;
+	weightWhite1 = 0.0;
+	for (dy = -spacing/2; dy < spacing/2; ++dy)
+	  for (dx = -spacing/2; dx < spacing/2; ++dx)
+	    {
+	      //			      ++steps[14];
+	      x = ix1 * spacing + dx;
+	      y = iy1 * spacing + dy;
+	      if (x < 0 || x >= iw1 ||
+		  y < 0 || y >= ih1)
+		continue;
+	      //			      ++steps[15];
+	      /* if pixel is not a valid pixel, ignore */
+	      if ((mask1[y*mbpl1+(x>>3)] & (0x80 >> (x & 7))) == 0)
+		continue;
+	      //			      ++steps[16];
+
+	      /* Find corresponding pixel value in the first image,
+		 and compute difference */
+	      xv = ((float) x) / mFactor;
+	      yv = ((float) y) / mFactor;
+	      if (!Invert(iMap, &rx, &ry, xv, yv))
+		continue;
+	      //			      ++steps[17];
+	      rx = (rx + mxMin) * mFactor;
+	      ry = (ry + myMin) * mFactor;
+
+	      /* interpolate to find pixel value */
+	      irx = (int) floor(rx);
+	      iry = (int) floor(ry);
+	      if (irx < 0 || irx >= iw0-1 ||
+		  iry < 0 || iry >= ih0-1)
+		continue;
+	      //			      ++steps[18];
+	      if ((mask0[iry*mbpl0 + (irx >> 3)] & (0x80 >> (irx & 7))) == 0 ||
+		  (mask0[(iry+1)*mbpl0 + (irx >> 3)] & (0x80 >> (irx & 7))) == 0 ||
+		  (mask0[iry*mbpl0 + ((irx+1) >> 3)] & (0x80 >> ((irx+1) & 7))) == 0 ||
+		  (mask0[(iry+1)*mbpl0 + ((irx+1) >> 3)] & (0x80 >> ((irx+1) & 7))) == 0)
+		continue;
+	      //			      ++steps[19];
+	      r00 = image0[iry * iw0 + irx];
+	      r01 = image0[(iry+1) * iw0 + irx];
+	      r10 = image0[iry * iw0 + irx+1];
+	      r11 = image0[(iry+1) * iw0 + irx+1];
+	      rv = r00 * (rrx - 1.0) * (rry - 1.0)
+		- r10 * rrx * (rry - 1.0) 
+		- r01 * (rrx - 1.0) * rry
+		+ r11 * rrx * rry;
+		  
+	      iv = image1[y*iw1 + x];
+
+	      lvl0 = (rv - image0Black) / (image0White - image0Black);
+	      if (lvl0 < 0.0)
+		lvl0 = 0.0;
+	      if (lvl0 > 1.0)
+		lvl0 = 1.0;
+	      lvl1 = (iv - image1Black) / (image1White - image1Black);
+	      if (lvl1 < 0.0)
+		lvl1 = 0.0;
+	      if (lvl1 > 1.0)
+		lvl1 = 1.0;
+	      lvl = 0.5 * (lvl0 + lvl1);
+
+	      weight = 1.0 - lvl;
+	      weightBlack1 += weight;
+	      sumBlack1 += weight * (iv - rv);
+	      ++blackCount1;
+
+	      weight = lvl;
+	      weightWhite1 += weight;
+	      sumWhite1 += weight * (iv - rv);
+	      ++whiteCount1;
+	    }		    
+
+	if (weightBlack0 > 0.0 || weightBlack1 > 0.0)
+	  {
+	    diff0to1 = (sumBlack0 + sumBlack1) /
+	      (weightBlack0 + weightBlack1);
+
+	    /* construct a spring representing the average difference of black values */
+	    if (nSprings+1 > springsSize)
+	      {
+		springsSize = (springsSize > 0) ? (springsSize + 1024*1024) : 1024*1024;
+		springs = (Spring*) realloc(springs, springsSize * sizeof(Spring));
+	      }
+#if 0
+	    if (i0 == 2 && ix == 41 && iy == 34)
+	      Log("Creating blk SPRING %d to %d %d %d   %f\n", nSprings, i1, ix1, iy1, diff0to1);
+	    if (i1 == 2 && ix1 == 41 && iy1 == 34)
+	      Log("Creating blk SPRING %d from %d %d %d  %f\n", nSprings, i0, ix, iy, diff0to1);
+#endif
+	    springs[nSprings].node0 = &nodes0[iy * nx0 + ix];
+	    springs[nSprings].node1 = &nodes1[iy1 * nx1 + ix1];
+	    springs[nSprings].k = interimageK * (weightBlack0 + weightBlack1) / (blackCount0 + blackCount1);
+	    springs[nSprings].offset = diff0to1;
+	    ++nInterSpringsBlack;
+	    ++nSprings;
+	    //			    ++steps[21];
+	  }
+
+	if (weightWhite0 > 0.0 || weightWhite1 > 0.0)
+	  {
+	    diff0to1 = (sumWhite0 + sumWhite1) /
+	      (weightWhite0 + weightWhite1);
+
+	    /* construct a spring representing the average difference of black values */
+	    if (nSprings+1 > springsSize)
+	      {
+		springsSize = (springsSize > 0) ? (springsSize + 1024*1024) : 1024*1024;
+		springs = (Spring*) realloc(springs, springsSize * sizeof(Spring));
+	      }
+#if 0
+	    if (i0 == 2 && ix == 41 && iy == 34)
+	      Log("Creating wht SPRING %d to %d %d %d  %f\n", nSprings, i1, ix1, iy1, diff0to1);
+	    if (i1 == 2 && ix1 == 41 && iy1 == 34)
+	      Log("Creating wht SPRING %d from %d %d %d  %f\n", nSprings, i0, ix, iy, diff0to1);
+#endif
+	    springs[nSprings].node0 = &nodes0[ny0*nx0 + (iy * nx0 + ix)];
+	    springs[nSprings].node1 = &nodes1[ny1*nx1 + (iy1 * nx1 + ix1)];
+	    springs[nSprings].k = interimageK * (weightWhite0 + weightWhite1) / (whiteCount0 + whiteCount1);
+	    springs[nSprings].offset = diff0to1;
+	    ++nInterSpringsWhite;
+	    ++nSprings;
+	    //			    ++steps[21];
+	  }
+      }
+  Log("nInterSpringsBlack = %d nInterSpringsWhite = %d\n",
+      nInterSpringsBlack, nInterSpringsWhite);
+
+  FreeInverseMap(iMap);
+  free(map);
+
+  if (++images[i0].used == images[i0].needed)
+    {
+      Log("Freeing image and mask for %s\n", images[i0].name);
+      free(images[i0].image);
+      images[i0].image = NULL;
+      free(images[i0].mask);
+      images[i0].mask = NULL;
+    }
+  else
+    Log("Increased used count of %s to %d, but needed = %d\n",
+	images[i0].name, images[i0].used, images[i0].needed);
+  if (++images[i1].used == images[i1].needed)
+    {
+      Log("Freeing image and mask for %s\n", images[i1].name);
+      free(images[i1].image);
+      images[i1].image = NULL;
+      free(images[i1].mask);
+      images[i1].mask = NULL;
+    }
+  else
+    Log("Increased used count of %s to %d, but needed = %d\n",
+	images[i1].name, images[i1].used, images[i1].needed);
 }
 
 void Error (char *fmt, ...)
@@ -2037,7 +2230,7 @@ CreateDirectories (char *fn)
 	  return(0);
 	}
       
-      if (mkdir(dn, 0777) != 0 && errno != EEXIST)
+      if (mkdir(dn, 0775) != 0 && errno != EEXIST)
 	{
 	  Log("Could not create directory %s\n", dn);
 	  return(0);

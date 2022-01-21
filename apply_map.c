@@ -1,7 +1,7 @@
 /*
  *  apply_map.c  -  applies maps to images
  *
- *  Copyright (c) 2009-2013 Pittsburgh Supercomputing Center,
+ *  Copyright (c) 2009-2017 Pittsburgh Supercomputing Center,
  *                          Carnegie Mellon University
  *
  *  This file is part of AlignTK.
@@ -28,6 +28,7 @@
  *    2009  Written by Greg Hood (ghood@psc.edu)
  *    2011  Fixed out-of-range array indices when rendering multi-gigabyte
  *             images (ghood@psc.edu)
+ *    2017  Fixed bug causing core dumps
  */
 
 #include <stdio.h>
@@ -887,13 +888,16 @@ main (int argc, char **argv, char **envp)
 
       for (hs = 1; ; hs *= 2)
 	{
+	  if (oHeight / hs < reductionFactor)
+            Error("Insufficient memory to construct a horizontal row.\n");
+
 	  endY = oMinY - 1;
 	  for (hi = 0; hi < hs; ++hi)
 	    {
 	      startY = endY + 1;
 	      if (cols == 1)
 		{
-		  endY = oMinY + (hi + 1) * oHeight / hs - 1;
+		  endY = oMinY + (int) ((hi + 1) * oHeight / hs) - 1;
 		  endY = ((endY - startY + 1) / reductionFactor) *
 		    reductionFactor + startY - 1;
 		  outHeight = rows * th;
@@ -902,14 +906,9 @@ main (int argc, char **argv, char **envp)
 	      else
 		{
 		  outHeight = ((oHeight / hs + th * reductionFactor - 1) /
-			       (th * reductionFactor)) *
-		    (th * reductionFactor);
-		  if (startY + ((int) outHeight) - 1 > oMaxY)
-		    outHeight = oMaxY - startY + 1;
+			       (th * reductionFactor)) * th;
 		  outWidth = tw;
-		  if (outHeight == 0)
-		    Error("Insufficent memory to construct a single row of tiles.\n");
-		  endY = startY + ((int) outHeight) - 1;
+		  endY = startY + outHeight * reductionFactor - 1;
 		}
 	      canvasHeight = endY - startY + 1;
 	      if (canvasHeight < reductionFactor)
@@ -992,14 +991,11 @@ main (int argc, char **argv, char **envp)
 	  else
 	    {
 	      outHeight = ((oHeight / hs + th * reductionFactor - 1) /
-			   (th * reductionFactor)) *
-		(th * reductionFactor);
-	      if (startY + ((int) outHeight) - 1 > oMaxY)
-		outHeight = oMaxY - startY + 1;
+			   (th * reductionFactor)) * th;
 	      outWidth = tw;
 	      if (outHeight == 0)
 		Error("Insufficent memory to construct a single row of tiles.\n");
-	      endY = startY + outHeight - 1;
+	      endY = startY + outHeight * reductionFactor - 1;
 	      //	      printf("malloc %zu bytes for out (cols != 1)\n",
 	      //		     outHeight * outWidth *
 	      //		     sizeof(unsigned char));
@@ -1455,7 +1451,6 @@ PaintImage (int i, int minX, int maxX, int minY, int maxY)
   int imapXMin, imapYMin;
   char imapName0[PATH_MAX], imapName1[PATH_MAX];
   float xvi, yvi;
-  int sourceMapMask;
   int smi;
   int targetMapSize;
   MapElement *targetMap;
@@ -2113,7 +2108,7 @@ CreateDirectories (char *fn)
       if (errno != ENOENT)
 	Error("Could not stat directory %s\n", dn);
       
-      if (mkdir(dn, 0777) != 0)
+      if (mkdir(dn, 0775) != 0)
 	Error("Could not create directory %s\n", dn);
     }
   return(1);

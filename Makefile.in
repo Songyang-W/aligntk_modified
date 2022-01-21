@@ -14,7 +14,7 @@ datadir = @datadir@
 TARGETS = @TARGETS@
 INSTALL_TARGETS = @INSTALL_TARGETS@
 
-NOX_EXECUTABLES = align apply_map best_affine best_rigid combine_masks compare_images compare_maps compose_maps extrapolate_map find_rst gen_imaps gen_mask gen_pyramid merge_images ortho prun reduce reduce_mask register transform
+NOX_EXECUTABLES = align apply_map autoclean_maps best_affine best_rigid combine_masks compare_images compare_maps compose_maps extrapolate_map find_rst gen_imaps gen_mask gen_pyramid invert_map merge_images ortho prun reduce reduce_mask register rotate_map transform
 X_EXECUTABLES = clean_maps inspector
 FLTK_LIBS=-lfltk -lfltk_gl -lGL -lGLU
 
@@ -35,6 +35,12 @@ apply_map.o: apply_map.c dt.h imio.h invert.h
 
 apply_map: apply_map.o dt.o imio.o invert.o
 	$(CC) $(CFLAGS) -o apply_map apply_map.o dt.o imio.o invert.o -ltiff -ljpeg -lm -lz
+
+autoclean_maps.o: autoclean_maps.cc imio.h invert.h
+	$(CXX) $(CFLAGS) -c autoclean_maps.cc
+
+autoclean_maps: autoclean_maps.o imio.o invert.o
+	$(CXX) $(CFLAGS) -o autoclean_maps autoclean_maps.o imio.o invert.o -ltiff -ljpeg -lm -lz
 
 best_affine.o: best_affine.c imio.h
 	$(CC) $(CFLAGS) -c best_affine.c
@@ -114,6 +120,12 @@ inspector.o: inspector.cc imio.h invert.h
 inspector: inspector.o imio.o invert.o
 	$(CXX) $(CFLAGS) -o inspector inspector.o imio.o invert.o $(FLTK_LIBS) -ltiff -ljpeg -lm -lz
 
+invert_map.o: invert_map.c imio.h invert.h
+	$(CC) $(CFLAGS) -c invert_map.c
+
+invert_map: invert_map.o imio.o invert.o
+	$(CC) $(CFLAGS) -o invert_map invert_map.o imio.o invert.o -ltiff -ljpeg -lm -lz
+
 libpar.o: libpar.c par.h
 	$(MPICC) $(CFLAGS) -c libpar.c
 
@@ -152,6 +164,12 @@ register.o: register.c compute_mapping.h imio.h par.h
 
 register: register.o dt.o compute_mapping.o imio.o libpar.o
 	$(MPICC) $(CFLAGS) -o register register.o dt.o compute_mapping.o imio.o libpar.o -ltiff -ljpeg -lm -lz
+
+rotate_map.o: rotate_map.c imio.h
+	$(CC) $(CFLAGS) -c rotate_map.c
+
+rotate_map: rotate_map.o imio.o
+	$(CC) $(CFLAGS) -o rotate_map rotate_map.o imio.o -ltiff -ljpeg -lm -lz
 
 transform.o: transform.c imio.h
 	$(CC) $(CFLAGS) -c transform.c

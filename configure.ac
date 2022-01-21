@@ -21,7 +21,7 @@ AC_CHECK_PROG(MPICC, [mpicc], [mpicc])
 # Checks for libraries.
 
 AC_LANG([C])
-#AC_CHECK_LIB([fftw3f], [fftwf_execute], TESTLIBS="$TESTLIBS -lfftw3f", AC_MSG_ERROR("Can't build without libfftw3f (does your system require a fftw3-devel package?)"), -lm)
+AC_CHECK_LIB([fftw3f], [fftwf_execute], TESTLIBS="$TESTLIBS -lfftw3f", AC_MSG_ERROR("Can't build without libfftw3f (does your system require a fftw3-devel package?)"), -lm)
 AC_CHECK_LIB([jpeg], [jpeg_start_decompress], , AC_MSG_ERROR("Can't build without libjpeg (does your system require a libjpg-devel package?)"), -lm)
 AC_CHECK_LIB([m], [cos])
 AC_CHECK_LIB([tiff], [TIFFOpen], , AC_MSG_ERROR("Can't build without libtiff (does your system require a libtiff-devel package?)"), -lm)
