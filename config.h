@@ -5,10 +5,10 @@
 #define HAVE_FLOOR 1
 
 /* Define to 1 if you have the <FL/fl_draw.H> header file. */
-#define HAVE_FL_FL_DRAW_H 1
+/* #undef HAVE_FL_FL_DRAW_H */
 
 /* Define to 1 if you have the <FL/Fl.H> header file. */
-#define HAVE_FL_FL_H 1
+/* #undef HAVE_FL_FL_H */
 
 /* Define to 1 if you have the <FL/Fl_Light_Button.H> header file. */
 /* #undef HAVE_FL_FL_LIGHT_BUTTON_H */
