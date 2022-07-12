@@ -1,13 +1,25 @@
 #Compile and install AlignTK onto Harvard Medical School's o2 cluster
 
+# From semver.org:
+#  "Given a version number MAJOR.MINOR.PATCH, increment the:
+#   MAJOR version when you make incompatible API changes,
+#   MINOR version when you add functionality in a backwards compatible manner, and
+#   PATCH version when you make backwards compatible bug fixes."
+# When you make updates to the code, please increment the version number in
+# accordance with the guidelines above. Complete your version change by:
+#   Changing the version number in this file
+#   Changing the version number in README
+#   Adding an entry to CHANGELOG.md describing the change
+#   Pushing the 3 above changes plus your code changes to GitHub
+#   Can be skipped for small changes, but then go to https://github.com/htem/aligntk/releases
+#     and create a new tag and a new release so that GitHub creates
+#     a .zip of the updated code that users can download.
+version=1.1.0
 
-# Update this version number before building a new version
-v=0
-
-install_dir=/n/groups/htem/AlignTKO2/1.1.$v
+install_dir=/n/groups/htem/AlignTKO2/$version
 
 if [ -e "$install_dir" ]; then
-    echo "$install_dir already exists. Increase the version number (currently $v) or delete that folder."
+    echo "$install_dir already exists. Increase the version number (currently $version) or delete that folder."
     exit 1
 fi
 
