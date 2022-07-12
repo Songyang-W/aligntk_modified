@@ -6,7 +6,7 @@ CXXFLAGS= -g -O2
 MPICC   = mpicc
 MKDIR   = mkdir
 INSTALL	= /usr/bin/install -c
-prefix	= /n/groups/htem/AlignTKO2/1.1.0
+prefix	= /n/groups/htem/AlignTKO2/1.2.0
 exec_prefix = ${prefix}
 bindir	= ${exec_prefix}/bin
 datarootdir = ${prefix}/share
@@ -14,7 +14,7 @@ datadir = ${datarootdir}
 TARGETS = nox_executables
 INSTALL_TARGETS = nox_install
 
-NOX_EXECUTABLES = align apply_map autoclean_maps best_affine best_rigid combine_masks compare_images compare_maps compose_maps extrapolate_map find_rst gen_imaps gen_mask gen_pyramid invert_map merge_images ortho prun reduce reduce_mask register rotate_map transform
+NOX_EXECUTABLES = align apply_map autoclean_maps best_affine best_rigid best_translation combine_masks compare_images compare_maps compose_maps extrapolate_map find_rst gen_imaps gen_mask gen_pyramid invert_map merge_images ortho prun reduce reduce_mask register rotate_map transform
 X_EXECUTABLES = clean_maps inspector
 FLTK_LIBS=-lfltk -lfltk_gl -lGL -lGLU
 
@@ -53,6 +53,12 @@ best_rigid.o: best_rigid.c imio.h
 
 best_rigid: best_rigid.o imio.o
 	$(CC) $(CFLAGS) -o best_rigid best_rigid.o imio.o -ltiff -ljpeg -lm -lz
+
+best_translation.o: best_translation.c imio.h
+	$(CC) $(CFLAGS) -c best_translation.c
+
+best_translation: best_translation.o imio.o
+	$(CC) $(CFLAGS) -o best_translation best_translation.o imio.o -ltiff -ljpeg -lm -lz
 
 clean_maps.o: clean_maps.cc imio.h invert.h
 	$(CXX) $(CFLAGS) -c clean_maps.cc

@@ -4,6 +4,7 @@ apply_map
 autoclean_maps
 best_affine
 best_rigid
+best_translation
 build/
 clean_maps
 combine_masks

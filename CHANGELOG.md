@@ -2,6 +2,9 @@
 
 Version 1.0.2 is the latest official AlignTK release from MMBioS (see the bottom entry of this changelog). Versions following 1.0.2 are unofficial releases of AlignTK provided by the Lee lab.
 
+## v1.2.0 - Jul 12, 2022
+Add `best_translation.c`, which computes the average translation caused by a given map and creates a new map that contains that translation only, without any rotation, scaling, or elastic deformations.
+
 ## v1.1.0 – Jan 20, 2022
 In late 2021/early 2022 some updates that had been in use for some time in the Lee lab were committed to this repo. This state was then dubbed **v1.1.0**.
 

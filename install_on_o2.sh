@@ -14,7 +14,7 @@
 #   Can be skipped for small changes, but then go to https://github.com/htem/aligntk/releases
 #     and create a new tag and a new release so that GitHub creates
 #     a .zip of the updated code that users can download.
-version=1.1.0
+version=1.2.0
 
 install_dir=/n/groups/htem/AlignTKO2/$version
 
