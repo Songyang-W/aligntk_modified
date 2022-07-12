@@ -1,7 +1,9 @@
 # AlignTK changelog
 
+Version 1.0.2 is the latest official AlignTK release from MMBioS (see the bottom entry of this changelog). Versions following 1.0.2 are unofficial releases of AlignTK provided by the Lee lab.
+
 ## v1.1.0 – Jan 20, 2022
-In late 2021/early 2022 some updates that had been in use for some time in the Lee lab were committed to this repo. This state was then dubbed **v1.1.0**. **This is not an official release of AlignTK**.
+In late 2021/early 2022 some updates that had been in use for some time in the Lee lab were committed to this repo. This state was then dubbed **v1.1.0**.
 
 Changes made since **v1.0.2** (including all those made in **v1.0.2p1** through **v1.0.2p7**):
 
@@ -18,7 +20,6 @@ Changes made since **v1.0.2** (including all those made in **v1.0.2p1** through 
 
 
 ## v1.0.2p1 through v1.0.2p7 – 2017 through 2021
-**These are not official releases of AlignTK.**
 
 Between 2015 and 2021 a number of relatively minor bugfixes and feature additions were made by Greg Hood (original AlignTK author), members of the Lee lab, and Lingsheng Dong (Harvard Medical School, Research Computing group). A detailed changelog for this time range is not available, but see the summary above in the notes for **v1.1.0**, or check this repo's [commit history](https://github.com/htem/aligntk/commits/main).
 
@@ -36,4 +37,4 @@ Below are the timestamps for these different patches, as shown on the HMS o2 clu
 ```
 
 ## v1.0.2 – May 13, 2015
-AlignTK **1.0.2** was officially released May 13, 2015. It is available for download from [https://mmbios.pitt.edu/index.php/aligntk-download](https://mmbios.pitt.edu/index.php/aligntk-download) (last checked Jan 20, 2022)
+AlignTK **1.0.2** was officially released May 13, 2015. It is available for download from [https://mmbios.pitt.edu/index.php/aligntk-download](https://mmbios.pitt.edu/index.php/aligntk-download) (last checked for availability on July 12, 2022)
