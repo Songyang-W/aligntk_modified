@@ -149,8 +149,16 @@ main (int argc, char **argv)
 	  }
 	if (y < mh1 && map[(y+1)*mw+x].c != 0.0)
 	  {
-	    angleSum += atan2(map[(y+1)*mw+x].y - map[y*mw+x].y,
-			      map[(y+1)*mw+x].x - map[y*mw+x].x) - M_PI/2.0;
+        if ( atan2(map[(y+1)*mw+x].y - map[y*mw+x].y, map[(y+1)*mw+x].x - map[y*mw+x].x) < -M_PI/2.0 )
+          {
+            angleSum += atan2(map[(y+1)*mw+x].y - map[y*mw+x].y,
+                      map[(y+1)*mw+x].x - map[y*mw+x].x) + 3.0*M_PI/2.0;
+          }
+        else
+          {
+            angleSum += atan2(map[(y+1)*mw+x].y - map[y*mw+x].y,
+                      map[(y+1)*mw+x].x - map[y*mw+x].x) - M_PI/2.0;
+          }
 	    ++n;
 	  }
       }	
