@@ -42,6 +42,5 @@ make install
 #Copy source files into the install_dir
 mkdir -p $install_dir/src
 cp *.* Makefile $install_dir/src/
-#Make the source code read-only
-chmod -w $install_dir/src/*
-
+#Make the installation read-only
+chmod -R -w $install_dir
