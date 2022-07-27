@@ -19,7 +19,6 @@ DOWNLOADS AND DOCUMENTATION:
 QUICK INSTALLATION - GENERAL USERS:
 
   Package prerequisites:  FFTW, FLTK, libtiff, libjpeg, zlib
-  (See https://github.com/htem/aligntk/wiki/Installing-locally for more details)
 
   ./configure
   make
@@ -33,14 +32,10 @@ QUICK INSTALLATION - LEE LAB ON HMS O2 CLUSTER:
 
   ./install_on_o2.sh
 
-  (See https://github.com/htem/aligntk/wiki/Installing-on-o2 for more details)
-
 
 QUESTIONS:
 
-  Check the wiki: https://github.com/htem/aligntk/wiki
-  Post any questions about AlignTK on the issues page: https://github.com/htem/aligntk/issues
-  Or send an e-mail to aligntk@psc.edu
+   Please e-mail any questions you may have about AlignTK to aligntk@psc.edu.
 
 
 MAILING LIST:
