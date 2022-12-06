@@ -2,7 +2,7 @@
  *  gen_pyramid.c  -  generates an image pyramid from a large image;
  *                    this is suitable as input to CATMAID
  *
- *  Copyright (c) 2022 Pittsburgh Supercomputing Center,
+ *  Copyright (c) 2014 Pittsburgh Supercomputing Center,
  *                     Carnegie Mellon University
  *
  *  This file is part of AlignTK.
@@ -25,7 +25,6 @@
  *       NIH NIGMS grant P41GM103712
  *
  *  HISTORY
- *    2022  Changed datatypes to uint64_t to allow for larger images
  *    2014  Written by Greg Hood (ghood@psc.edu)
  */
 
@@ -34,7 +33,6 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -47,7 +45,7 @@ main (int argc, char **argv)
   unsigned char inputName[PATH_MAX];
   unsigned char outputName[PATH_MAX];
   unsigned char subdirName[PATH_MAX];
-  uint64_t outputTileWidth, outputTileHeight;
+  int outputTileWidth, outputTileHeight;
   int rowCol;
   char format[PATH_MAX];
   int quality;
@@ -64,14 +62,12 @@ main (int argc, char **argv)
 
   int zeroBasis;
   int nHorizInputTiles, nVertInputTiles;
-  int itWidth, itHeight;
-  uint64_t inputTileWidth, inputTileHeight;
-  uint64_t iw, ih;
+  int inputTileWidth, inputTileHeight;
+  int iw, ih;
 
   unsigned char *out = NULL;
   unsigned char *img;
-  int imWidth, imHeight;
-  uint64_t imw, imh;
+  int imw, imh;
   int row, col;
   int x, y;
   int dx, dy;
@@ -80,21 +76,21 @@ main (int argc, char **argv)
   int bx, by;
   int nLevels;
   int *nHorizOutputTiles, *nVertOutputTiles;
-  uint64_t ow, oh;
+  int ow, oh;
   unsigned char ***ucTiles;
   unsigned int ***uiTiles;
   int **req;
-  uint32_t minBX, maxBX, minBY, maxBY;
+  int minBX, maxBX, minBY, maxBY;
   int lvl;
-  uint64_t srcMinX, srcMaxX, srcMinY, srcMaxY;
-  uint64_t dstMinX, dstMaxX, dstMinY, dstMaxY;
+  int srcMinX, srcMaxX, srcMinY, srcMaxY;
+  int dstMinX, dstMaxX, dstMinY, dstMaxY;
   unsigned char *ucTile;
   unsigned int *uiTile;
   unsigned int *sTile;
   int shift;
-  uint64_t offset;
+  int offset;
   int ix, iy;
-  uint64_t sdx, ddx;
+  int sdx, ddx;
   float rotation;
   int n90;
   int tmp[4];
@@ -152,7 +148,7 @@ main (int argc, char **argv)
     else if (strcmp(argv[i], "-output_tile_size") == 0)
       {
 	if (++i == argc ||
-	    sscanf(argv[i], "%lux%lu", &outputTileWidth, &outputTileHeight) != 2)
+	    sscanf(argv[i], "%dx%d", &outputTileWidth, &outputTileHeight) != 2)
 	  {
 	    error = 1;
 	    break;
@@ -373,13 +369,11 @@ main (int argc, char **argv)
 	sprintf(baseName, format, col, row);
       sprintf(fn, "%s/%s", inputName, baseName);
     }
-  if (!ReadImageSize(fn, &itWidth, &itHeight, msg))
+  if (!ReadImageSize(fn, &inputTileWidth, &inputTileHeight, msg))
     {
       fprintf(stderr, "Could not read image size of %s\n", fn);
       exit(1);
     }
-  inputTileWidth = itWidth;
-  inputTileHeight = itHeight;
 
   // if an axis-swapping transformation, exchange variables
   if (tm[0] == 0)
@@ -404,7 +398,7 @@ main (int argc, char **argv)
   ++nLevels;
 
   printf("Output image pyramid will have %d levels.\n", nLevels);
-  if (mkdir(outputName, 0777) != 0 &&
+  if (mkdir(outputName, 0775) != 0 &&
       errno != EEXIST)
     {
       fprintf(stderr, "Could not create output directory %s\n", outputName);
@@ -419,7 +413,7 @@ main (int argc, char **argv)
   for (lvl = 0; lvl < nLevels; ++lvl)
     {
       sprintf(fn, "%s/%d", outputName, lvl);
-      if (mkdir(fn, 0777) != 0 &&
+      if (mkdir(fn, 0775) != 0 &&
 	  errno != EEXIST)
 	{
 	  fprintf(stderr, "Could not create directory %s\n", fn);
@@ -428,7 +422,7 @@ main (int argc, char **argv)
       if (subdirName[0] != '\0')
 	{
 	  sprintf(fn, "%s/%d/%s", outputName, lvl, subdirName);
-	  if (mkdir(fn, 0777) != 0 &&
+	  if (mkdir(fn, 0775) != 0 &&
 	      errno != EEXIST)
 	    {
 	      fprintf(stderr, "Could not create directory %s\n", fn);
@@ -461,7 +455,7 @@ main (int argc, char **argv)
       for (by = 0; by < nVertOutputTiles[lvl]; ++by)
 	{
 	  sprintf(fn, "%s/%d/%s/%d", outputName, lvl, subdirName, by);
-	  if (mkdir(fn, 0777) != 0 &&
+	  if (mkdir(fn, 0775) != 0 &&
 	      errno != EEXIST)
 	    {
 	      fprintf(stderr, "Could not create directory %s\n", fn);
@@ -524,14 +518,12 @@ main (int argc, char **argv)
 		      tty + (zeroBasis ? 0 : 1));
 	    sprintf(fn, "%s/%s", inputName, baseName);
 	  }
-	if (!ReadImage(fn, &img, &imWidth, &imHeight, -1, -1, -1, -1, msg))
+	if (!ReadImage(fn, &img, &imw, &imh, -1, -1, -1, -1, msg))
 	    {
 	      fprintf(stderr, "Could not read image %s:\n  error: %s\n",
 		      fn, msg);
 	      exit(1);
 	    }
-	imw = imWidth;
-	imh = imHeight;
 	if (imw * imh != inputTileWidth * inputTileHeight)
 	  {
 	    fprintf(stderr, "Dimensions of image %s are inconsistent.\n", fn);

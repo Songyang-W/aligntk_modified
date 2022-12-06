@@ -1,9 +1,7 @@
 /*
  * gen_mask.c  - generate mask from an image
  *
- *  Copyright (c) 2008-2013 National Resource for Biomedical
- *                          Supercomputing,
- *                          Pittsburgh Supercomputing Center,
+ *  Copyright (c) 2008-2022 Pittsburgh Supercomputing Center,
  *                          Carnegie Mellon University
  *
  *  This file is part of AlignTK.
@@ -27,9 +25,10 @@
  *       NIH NIGMS grant P41GM103712
  *
  *  HISTORY
- *    2008-2013  Written by Greg Hood (ghood@psc.edu)
+ *    2008-2022  Written by Greg Hood (ghood@psc.edu)
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
@@ -48,11 +47,13 @@
 /* FORWARD DECLARATIONS */
 void FloodFill (unsigned char *image, unsigned char *mask,
 		unsigned char background,
-		int x, int y, int w, int h);
-int ClusterFloodFill (int w, int h,
-		      int *cluster, unsigned char *image, unsigned char *mask,
-		      int id, int ix, int iy);
+		uint32_t x, uint32_t y, uint64_t w, uint64_t h);
+uint64_t ClusterFloodFill (uint64_t w, uint64_t h,
+			   int64_t *cluster,
+			   unsigned char *image, unsigned char *mask,
+			   int64_t id, uint32_t ix, uint32_t iy);
 void Error (char *fmt, ...);
+
 
 int
 main (int argc, char **argv)
@@ -66,28 +67,23 @@ main (int argc, char **argv)
   char inputName[PATH_MAX];
   char outputName[PATH_MAX];
   char msg[PATH_MAX+256];
-  int w, h;
-  int i, j;
-  int n;
-  char tc;
-  int m;
-  int b;
-  int x, y;
-  int dx, dy;
-  int bpl;
-  int side;
-  int count[256];
+  int iw, ih;
+  uint64_t w, h;
+  int i;
+  uint32_t x, y;
+  uint64_t bpl;
+  uint64_t count[256];
   unsigned char *newMask;
   unsigned char *tmpMask;
   unsigned char background = 0;
   unsigned char *image = 0;
   unsigned char *mask = 0;
   unsigned char *bitMask = 0;
-  int nClusters = 0;
-  int *cluster = 0;
-  int *clusterCount = 0;
+  uint64_t nClusters = 0;
+  int64_t *cluster = 0;
+  uint64_t *clusterCount = 0;
   unsigned char *useCluster = 0;
-  int totalCount;
+  uint64_t totalCount;
 
   error = 0;
   method = THRESHOLD_METHOD;
@@ -156,15 +152,19 @@ main (int argc, char **argv)
       {
 	fprintf(stderr, "Unknown option: %s\n", argv[i]);
 	error = 1;
+	break;
       }
 
-  if (error)
+  if (argc == 1 || error)
     {
-      if (i >= argc)
+      if (argc > 1 && i >= argc)
 	fprintf(stderr, "Incomplete option: %s\n\n", argv[i-1]);
 
       fprintf(stderr, "Usage: gen_mask -input image.tif -output mask.pbm\n");
       fprintf(stderr, "               [-threshold int_value ]\n");
+      fprintf(stderr, "               [-range lower_int_value-upper_int_value ]\n");
+      fprintf(stderr, "               [-boundary-fill]\n");
+      fprintf(stderr, "               [-erode int_iterations]\n");
       exit(1);
     }
 
@@ -176,38 +176,40 @@ main (int argc, char **argv)
     }
 
 
-  if (!ReadImage(inputName, &image, &w, &h, -1, -1, -1, -1, msg))
+  if (!ReadImage(inputName, &image, &iw, &ih, -1, -1, -1, -1, msg))
     Error("%s\n", msg);
+  w = iw;
+  h = ih;
   mask = (unsigned char *) malloc(h*w);
 
   if (method == THRESHOLD_METHOD)
     {
-      for (y = 0; y < h; ++y)
-	for (x = 0; x < w; ++x)
+      for (y = 0; y < ih; ++y)
+	for (x = 0; x < iw; ++x)
 	  mask[y*w + x] = image[y*w + x] >= threshold;
     }
   else if (method == RANGE_METHOD)
     {
-      for (y = 0; y < h; ++y)
-	for (x = 0; x < w; ++x)
+      for (y = 0; y < ih; ++y)
+	for (x = 0; x < iw; ++x)
 	  mask[y*w + x] =
 	    image[y*w + x] >= lowerThreshold &&
 	    image[y*w + x] <= upperThreshold;
     }
   else if (method == BOUNDARY_FILL_METHOD)
     {
-      for (x = 0; x < w; ++x)
+      for (x = 0; x < iw; ++x)
 	{
 	  y = 0;
 	  ++count[image[y*w + x]];
-	  y = h-1;
+	  y = ih-1;
 	  ++count[image[y*w + x]];
 	}
-      for (y = 1; y < h-1; ++y)
+      for (y = 1; y < ih-1; ++y)
 	{
 	  x = 0;
 	  ++count[image[y*w + x]];
-	  x = w-1;
+	  x = iw-1;
 	  ++count[image[y*w + x]];
 	}
 
@@ -219,42 +221,37 @@ main (int argc, char **argv)
 
       /* flood fill in from all perimeter pixels with that value */
       memset(mask, 1, h*w);
-      for (x = 0; x < w; ++x)
+      for (x = 0; x < iw; ++x)
 	{
 	  y = 0;
 	  if (image[y*w + x] == background && mask[y*w + x])
 	    FloodFill(image, mask, background, x, y, w, h);
-	  y = h-1;
+	  y = ih-1;
 	  if (image[y*w + x] == background && mask[y*w + x])
 	    FloodFill(image, mask, background, x, y, w, h);
 	}
-      for (y = 1; y < h-1; ++y)
+      for (y = 1; y < ih-1; ++y)
 	{
 	  x = 0;
-	  if (image[y*w + x] == background &&
-	      (mask[y*bpl + (x >> 3)] & (0x80 >> (x & 7))) != 0)
+	  if (image[y*w + x] == background && mask[y*w + x])
 	    FloodFill(image, mask, background, x, y, w, h);
-	  x = w-1;
-	  if (image[y*w + x] == background &&
-	      (mask[y*bpl + (x >> 3)] & (0x80 >> (x & 7))) != 0)
+	  x = iw-1;
+	  if (image[y*w + x] == background && mask[y*w + x])
 	    FloodFill(image, mask, background, x, y, w, h);
 	}
     }
 
   if (erode > 0)
-    {
-      newMask = (unsigned char *) malloc(h * w);
-      memset(mask, 0, h*bpl);
-    }  
+    newMask = (unsigned char *) malloc(h * w);
   for (i = 0; i < erode; ++i)
     {
-      for (y = 0; y < h; ++y)
-        for (x = 0; x < w; ++x)
+      for (y = 0; y < ih; ++y)
+        for (x = 0; x < iw; ++x)
           newMask[y*w+x] = mask[y*w+x] &&
             (x == 0 || mask[y*w+x-1]) &&
-            (x >= w-1 || mask[y*w+x+1]) &&
+            (x >= iw-1 || mask[y*w+x+1]) &&
             (y == 0 || mask[(y-1)*w+x]) &&
-            (y >= h-1 || mask[(y+1)*w+x]);
+            (y >= ih-1 || mask[(y+1)*w+x]);
       tmpMask = mask;
       mask = newMask;
       newMask = tmpMask;
@@ -267,22 +264,22 @@ main (int argc, char **argv)
   if (clusterThreshold > 0.0)
     {
       // clear all the cluster bits
-      cluster = (int *) malloc(h * w * sizeof(int));
+      cluster = (int64_t *) malloc(h * w * sizeof(int64_t));
       for (y = 0; y < h; ++y)
 	for (x = 0; x < w; ++x)
 	  cluster[y * w + x] = -1;
 
-      clusterCount = (int *) malloc(h * w * sizeof(int));
+      clusterCount = (uint64_t *) malloc(h * w * sizeof(uint64_t));
       useCluster = (unsigned char *) malloc(h * w * sizeof(unsigned char));
       nClusters = 0;
       totalCount = 0;
-      for (y = 0; y < h; ++y)
-	for (x = 0; x < w; ++x)
+      for (y = 0; y < ih; ++y)
+	for (x = 0; x < iw; ++x)
 	  {
 	    if (!mask[y * w + x] || cluster[y * w + x] >= 0)
 	      continue;
 	    clusterCount[nClusters] = ClusterFloodFill(w, h, cluster, image, mask, nClusters, x, y);
-	    printf("Cluster %d has %d elements\n", nClusters, count[nClusters]);
+	    printf("Cluster %llu has %llu elements\n", nClusters, count[nClusters]);
 	    totalCount += clusterCount[nClusters];
 	    ++nClusters;
 	  }
@@ -290,13 +287,11 @@ main (int argc, char **argv)
       for (i = 0; i < nClusters; ++i)
 	useCluster[i] = (100.0 * count[nClusters]) / totalCount >= clusterThreshold;
 
-      for (y = 0; y < h; ++y)
-	for (x = 0; x < w; ++x)
-
-	  //	  if (!
-	  //
-	  //	  if (useCluster[
-      
+      for (y = 0; y < ih; ++y)
+	for (x = 0; x < iw; ++x)
+	  if (mask[y*w+x] &&
+	      (cluster[y*w+x] < 0 || !useCluster[cluster[y*w+x]]))
+	    mask[y*w+x] = 0;
 
       free(useCluster);
       free(clusterCount);
@@ -305,15 +300,15 @@ main (int argc, char **argv)
 
   /* write out the mask */
   bpl = (w+7) >> 3;
-  bitMask = (unsigned char *) malloc(h*bpl);
-  memset(bitMask, 0, h*bpl);
-  for (y = 0; y < h; ++y)
-    for (x = 0; x < w; ++x)
+  bitMask = (unsigned char *) malloc(h * bpl);
+  memset(bitMask, 0, h * bpl);
+  for (y = 0; y < ih; ++y)
+    for (x = 0; x < iw; ++x)
       if (mask[y*w+x])
 	bitMask[y * bpl + (x >> 3)] |= 0x80 >> (x & 7);
   free(mask);
   if (!WriteBitmap(outputName, bitMask,
-		   w, h, UncompressedBitmap, msg))
+		   iw, ih, UncompressedBitmap, msg))
     Error("%s\n", msg);
   free(bitMask);
   exit(0);
@@ -322,16 +317,15 @@ main (int argc, char **argv)
 void
 FloodFill (unsigned char *image, unsigned char *mask,
 	   unsigned char background,
-	   int x, int y, int w, int h)
+	   uint32_t x, uint32_t y, uint64_t w, uint64_t h)
 {
-  int y1;
-  int left, right;
-  int sp;
-  unsigned int *stack;
-  int bpl;
+  int32_t y1;
+  uint32_t left, right;
+  uint64_t sp;
+  uint64_t *stack;
 
   sp = 0;
-  stack = (unsigned int *) malloc(h * w * sizeof(int));
+  stack = (uint64_t *) malloc(h * w * sizeof(uint64_t));
   stack[sp++] = y*w+x;
   while (sp > 0)
     {
@@ -384,15 +378,15 @@ FloodFill (unsigned char *image, unsigned char *mask,
   free(stack);
 }
 
-int
-ClusterFloodFill (int w, int h,
-		  int *cluster, unsigned char *image, unsigned char *mask,
-		  int id, int ix, int iy)
+uint64_t
+ClusterFloodFill (uint64_t w, uint64_t h,
+		  int64_t *cluster, unsigned char *image, unsigned char *mask,
+		  int64_t id, uint32_t ix, uint32_t iy)
 {
-  unsigned int *stack = (unsigned int *) malloc(h * w * sizeof(unsigned int));
-  int sp = 0;
-  int count = 0;
-  int x, y;
+  uint64_t *stack = (uint64_t *) malloc(h * w * sizeof(uint64_t));
+  uint64_t sp = 0;
+  uint64_t count = 0;
+  uint32_t x, y;
   cluster[iy * w + ix] = id;
   stack[sp++] = iy*w+ix;
   while (sp > 0)
